@@ -1,0 +1,34 @@
+{
+  "name": "zhongxing-canvas",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets": "node scripts/assets.mjs",
+    "dev": "npm run assets && vite --host 127.0.0.1 --port 4317 --strictPort",
+    "build": "npm run assets && tsc --noEmit && vite build",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "probe:plugin": "node scripts/probe-plugin.mjs .",
+    "test:clean-install": "node scripts/clean-install-test.mjs release/zhongxing-canvas",
+    "verify:release": "node scripts/verify-release.mjs",
+    "pack:release": "node scripts/package-release.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4317 --strictPort",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.4",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.9",
+    "fake-indexeddb": "6.2.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vite": "7.1.7",
+    "zod": "4.4.3"
+  }
+}

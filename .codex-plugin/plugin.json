@@ -1,0 +1,25 @@
+{
+  "name": "zhongxing-canvas",
+  "version": "2.0.0",
+  "description": "众行无限画布：本地优先的视觉方案、画布编辑、生图与标注修改工作流。",
+  "author": {
+    "name": "众行"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "众行无限画布",
+    "shortDescription": "在 Codex 中构思、绘制并一键生图。",
+    "longDescription": "自包含 Excalidraw 画布，包含三组视觉方案、审美规则库、参考图、生图和箭头标注修改。无需本机 Vite 服务。",
+    "developerName": "众行",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Image generation",
+      "Local-first"
+    ],
+    "defaultPrompt": [
+      "打开众行无限画布。"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
