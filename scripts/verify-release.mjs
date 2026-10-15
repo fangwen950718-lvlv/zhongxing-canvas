@@ -1,8 +1,10 @@
 import { access, readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pluginLaunchConfig } from './plugin-launch-config.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
+await pluginLaunchConfig(root);
 const required = ['plugin.json','mcp.json','.codex-plugin/plugin.json','.mcp.json','.agents/plugins/marketplace.json','scripts/start-mcp.mjs','mcp/generated/server.mjs','mcp/generated/zhongxing-canvas-widget.html','mcp/generated/release-manifest.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md'];
 for (const file of required) await access(join(root, file));
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));

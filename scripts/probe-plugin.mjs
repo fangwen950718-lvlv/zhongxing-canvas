@@ -4,11 +4,12 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pluginLaunchConfig } from './plugin-launch-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = process.argv[2] ? path.resolve(process.argv[2]) : root;
 const testRuntime = await mkdtemp(path.join(tmpdir(), 'zhongxing-plugin-probe-'));
-const transport = new StdioClientTransport({ command: 'node', args: ['./scripts/start-mcp.mjs'], cwd: pluginRoot, env: { ...process.env, ZHONGXING_TEST_RUNTIME: testRuntime } });
+const transport = new StdioClientTransport({ ...await pluginLaunchConfig(pluginRoot), env: { ...process.env, ZHONGXING_TEST_RUNTIME: testRuntime } });
 const client = new Client({ name: 'zhongxing-canvas-probe', version: '2.0.0' });
 
 await client.connect(transport);

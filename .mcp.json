@@ -3,11 +3,9 @@
   "mcpServers": {
     "zhongxing_canvas": {
       "type": "stdio",
-      "title": "众行无限画布 MCP",
-      "description": "加载内置画布 Widget，并提供方案、生图和标注修改任务工具。",
       "command": "node",
-      "args": ["./scripts/start-mcp.mjs"],
-      "cwd": "."
+      "args": ["${PLUGIN_ROOT}/scripts/start-mcp.mjs"],
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }

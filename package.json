@@ -1,6 +1,6 @@
 {
   "name": "zhongxing-canvas",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:plugin": "node scripts/build-plugin.mjs",
     "probe:plugin": "node scripts/probe-plugin.mjs .",
     "test:clean-install": "node scripts/clean-install-test.mjs release/zhongxing-canvas",
+    "test:codex-loader": "node scripts/test-codex-loader.mjs release/zhongxing-canvas --legacy-fixture && node scripts/test-codex-loader.mjs release/zhongxing-canvas",
     "verify:release": "node scripts/verify-release.mjs",
     "pack:release": "node scripts/package-release.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4317 --strictPort",

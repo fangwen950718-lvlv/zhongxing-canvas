@@ -55,6 +55,8 @@ codex plugin add zhongxing-canvas@zhongxing-canvas-github
 
 ## 常见故障
 
+- **提示打开工具未加载，日志出现 unknown field title**：v2.0.2 已移除 MCP 服务条目中的展示元数据，修复严格加载器拒绝配置的问题，并显式使用插件根目录启动路径。请更新 Marketplace 并重新安装最新版插件，完全退出 Codex 后新建对话；无需重装 Node 或删除项目数据。
+
 - **只看到空白或加载失败**：完全退出 Codex 后重开；再运行 `codex plugin marketplace upgrade zhongxing-canvas-github` 并重新安装插件。
 - **方案或生图没有开始**：确认画布是从当前 Codex 对话打开；画布会向当前对话发送任务，可在对话中看到进度。
 - **不能选择文件或下载**：使用画布提供的 JSON 文本备份和图像预览链接；不同 Codex 宿主版本对原生文件对话框的支持可能不同。
@@ -81,6 +83,9 @@ npm run build:plugin
 npm run probe:plugin
 npm run verify:release
 npm run pack:release
+npm run test:clean-install
+# 已安装 Codex CLI 的开发环境还必须执行实际加载器回归测试
+npm run test:codex-loader
 ```
 
 - `npm run dev`：Vite 开发模式，默认 `127.0.0.1:4317`。

@@ -33,5 +33,7 @@
 
 ## 发布门禁
 
+v2.0.2 起，MCP stdio 服务条目仅允许 type、command、args、env、cwd；title、description 等展示元数据不得放入服务条目。args 与 cwd 使用 ${PLUGIN_ROOT}，不得依赖启动时的工作目录。探针与隔离测试必须读取发布清单，而不是硬编码启动命令。发布机器还须执行 npm run test:codex-loader，使用隔离 CODEX_HOME 下的真实 Codex App Server 复现旧配置错误，并确认新配置返回打开画布工具。
+
 构建后必须在隔离临时目录中只复制发布文件，清空 `ZHONGXING_CANVAS_ROOT`，不运行 4317/4318，不提供 `node_modules`，实际启动 MCP、读取 Widget、创建任务，并验证升级后测试数据仍存在。随后才能打标签和发布 Release。
 

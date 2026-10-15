@@ -1,10 +1,10 @@
 {
   "name": "zhongxing-canvas",
   "displayName": "众行无限画布",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "mcp": "zhongxing_canvas",
-  "widget": "ui://zhongxing-canvas/2.0.1/index.html",
-  "builtAt": "2026-10-15T03:31:24.210Z",
+  "widget": "ui://zhongxing-canvas/2.0.2/index.html",
+  "builtAt": "2026-10-15T04:20:26.948Z",
   "files": [
     "server.mjs",
     "zhongxing-canvas-widget.html"

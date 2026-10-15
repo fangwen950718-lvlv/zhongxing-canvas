@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { access, cp, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pluginLaunchConfig } from './plugin-launch-config.mjs';
 
 const source = process.argv[2];
 if (!source) throw new Error('Usage: node scripts/clean-install-test.mjs RELEASE_PLUGIN_ROOT');
@@ -13,7 +14,7 @@ if ((await readdir(installA)).includes('node_modules')) throw new Error('Release
 for (const required of ['plugin.json','mcp.json','scripts/start-mcp.mjs','mcp/generated/server.mjs','mcp/generated/zhongxing-canvas-widget.html']) await access(join(installA, required));
 
 async function connect(root) {
-  const transport = new StdioClientTransport({ command: 'node', args: ['./scripts/start-mcp.mjs'], cwd: root, env: { ...process.env, ZHONGXING_CANVAS_DATA_DIR: dataDir, ZHONGXING_CANVAS_ROOT: '' } });
+  const transport = new StdioClientTransport({ ...await pluginLaunchConfig(root), env: { ...process.env, ZHONGXING_CANVAS_DATA_DIR: dataDir, ZHONGXING_CANVAS_ROOT: '' } });
   const client = new Client({ name: 'clean-install-test', version: '2.0.0' });
   await client.connect(transport); return client;
 }
