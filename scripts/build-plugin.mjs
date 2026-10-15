@@ -32,7 +32,7 @@ const manifest = {
   mcp: 'zhongxing_canvas',
   widget: `ui://zhongxing-canvas/${pkg.version}/index.html`,
   builtAt: new Date().toISOString(),
-  files: ['server.mjs', 'zhongxing-canvas-widget.html'],
+  files: ['server.mjs', 'zhongxing-canvas-widget.html', 'asset-manifest.json', 'assets/application.js.gz', 'assets/application.css.gz'],
 };
 await writeFile(path.join(outputDir, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 await mkdir(path.join(root, '.codex-plugin'), { recursive: true });

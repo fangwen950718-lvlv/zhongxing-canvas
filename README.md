@@ -2,6 +2,8 @@
 
 众行无限画布是一款自包含的 Codex 插件：在 MCP App 中直接运行 Excalidraw 画布，并把视觉方案、生图与箭头标注改图任务交给当前 Codex 对话。正式安装版不需要复制开发工程、执行 `npm install`、启动 Vite、配置 API Key 或访问 localhost。
 
+v2.0.3 的画布入口约 109 KB。编辑器、样式及原始字体随插件安装，通过仅供界面调用的 MCP 工具以每块不超过 96 KB 读取，并校验 SHA-256；不会把约 26 MB 的页面一次性交给宿主。启动时有加载进度与可重试错误提示，不依赖 CDN 或额外的本地网页服务。
+
 ## 功能
 
 - 无限画布：平移、缩放、文字、箭头、常用图形、图片导入、吸附、网格对齐、撤销重做。
@@ -15,6 +17,7 @@
 - macOS、Windows 或 Linux 上的 Codex 桌面版。
 - Node.js 22 或更高版本（仅用于启动插件内已经打包好的 MCP Server；无需安装 npm 依赖）。
 - 当前 Codex 账号可使用内置生图工具，才能完成真实生图与改图。
+- 从 GitHub 安装及更新需要可用的 Git。全新 Mac 调用系统 Git 时可能提示安装 Apple Command Line Tools；这是获取 Git 的常见方式，不要求安装完整 Xcode，也不需要编译本插件。运行正式插件不需要编译器。
 
 ## 从 GitHub 安装
 
@@ -55,6 +58,9 @@ codex plugin add zhongxing-canvas@zhongxing-canvas-github
 
 ## 常见故障
 
+- **显示“此应用过大，无法显示”**：请升级到 v2.0.3 或更新版本；v2.0.2 及之前返回了过大的单文件页面。更新 Marketplace 后重新安装插件，再完全退出 Codex 并在新对话打开。无需重装 Node 或删除项目。首次打开时资源从本机插件分块加载，保持窗口可用，按页面进度等待。
+- **GitHub 更新超时 / fatal: early EOF**：这表示下载未完成，不代表本机画布数据损坏。更新成功前不要先卸载当前插件。可向维护者获取对应 Release ZIP，解压后将其作为本地 Marketplace 安装，不需要重新构建源码。
+
 - **提示打开工具未加载，日志出现 unknown field title**：v2.0.2 已移除 MCP 服务条目中的展示元数据，修复严格加载器拒绝配置的问题，并显式使用插件根目录启动路径。请更新 Marketplace 并重新安装最新版插件，完全退出 Codex 后新建对话；无需重装 Node 或删除项目数据。
 
 - **只看到空白或加载失败**：完全退出 Codex 后重开；再运行 `codex plugin marketplace upgrade zhongxing-canvas-github` 并重新安装插件。
@@ -89,11 +95,13 @@ npm run test:codex-loader
 ```
 
 - `npm run dev`：Vite 开发模式，默认 `127.0.0.1:4317`。
-- `npm run build:plugin`：生成 `mcp/generated/server.mjs`、单文件 Widget 和版本清单。
+- `npm run build:plugin`：生成 `mcp/generated/server.mjs`、小型 Widget 入口、离线压缩资源、资源校验清单和版本清单。
 - `npm run probe:plugin`：通过 stdio 实际启动发布 MCP，读取 Widget 并创建隔离任务。
 - `npm run verify:release`：检查版本、清单、必需文件、个人路径和遗留本机服务依赖。
 
 正式插件入口是仓库根目录的 `plugin.json` 和 `mcp.json`；`.codex-plugin/plugin.json` 与 `.mcp.json` 仅作兼容。版本以根 `package.json` 为单一来源，构建会同步并验证发布清单。
+
+界面验收可运行 `node scripts/widget-host-test.mjs release/zhongxing-canvas`，在浏览器打开输出的测试地址。测试宿主通过真实发布 MCP 读取小入口及资源，并在禁止外部网络的 iframe CSP 下渲染。其方案与图片回填使用明确标记的固定测试数据，不代表真实模型质量测试；正式 Codex 的 UI 展开方式和生图权限仍取决于宿主版本和账号策略。
 
 ## 许可证
 

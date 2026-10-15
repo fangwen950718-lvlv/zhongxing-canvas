@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pluginLaunchConfig } from './plugin-launch-config.mjs';
+import { gunzipSync } from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = process.argv[2] ? path.resolve(process.argv[2]) : root;
@@ -24,7 +25,17 @@ try {
   if ('browserUrl' in (opened.structuredContent || {})) throw new Error('Release still exposes a localhost browser URL');
   const resource = await client.readResource({ uri: opened._meta['ui/resourceUri'] });
   const html = resource.contents?.[0]?.text || '';
-  for (const marker of ['生图 brief','修改标注','create_zhongxing_image_job','indexedDB','ZONE']) if (!html.includes(marker)) throw new Error(`Widget missing ${marker}`);
+  if (Buffer.byteLength(html) > 250_000) throw new Error('Widget entry too large');
+  const chunks = []; let offset = 0, size = 1;
+  while (offset < size) {
+    const response = await client.callTool({ name: 'read_zhongxing_widget_asset', arguments: { id: 'application.js.gz', offset } });
+    if (response.isError) throw new Error('Offline asset transfer failed');
+    const bytes = Buffer.from(response.structuredContent.base64, 'base64');
+    if (bytes.length > 96 * 1024) throw new Error('Unbounded asset response');
+    chunks.push(bytes); offset += bytes.length; size = response.structuredContent.size;
+  }
+  const payload = gunzipSync(Buffer.concat(chunks)).toString('utf8');
+  for (const marker of ['生图 brief','修改标注','create_zhongxing_image_job','indexedDB','ZONE']) if (!payload.includes(marker)) throw new Error(`Widget missing ${marker}`);
   if (/127\.0\.0\.1:4318|ZHONGXING_CANVAS_ROOT|api\/handoffs/.test(html)) throw new Error('Widget contains legacy local-service dependency');
 
   const brief = await client.callTool({ name: 'create_zhongxing_brief_job', arguments: { brief: '隔离测试', rulePreset: 'social-poster', ruleLabel: '社媒海报', ruleText: '单一视觉钩子' } });

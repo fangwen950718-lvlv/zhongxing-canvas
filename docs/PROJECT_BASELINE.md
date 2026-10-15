@@ -33,6 +33,8 @@
 
 ## 发布门禁
 
+v2.0.3 起，UI Resource 的 UTF-8 大小不得超过 250,000 字节，资源读工具的二进制块不得超过 96 KiB。打包生成 asset-manifest.json 与离线 gzip 资源，客户端核对完整长度及 SHA-256 后加载；保留原始编辑器和所有字体，禁止为缩小入口删掉能力。发布检查须核对资源校验和、路径边界、损坏输入和 gzip 解压内容。界面验收必须实际渲染小入口并完成保存恢复、方案与图片回填；工具返回成功不能替代界面可用。
+
 v2.0.2 起，MCP stdio 服务条目仅允许 type、command、args、env、cwd；title、description 等展示元数据不得放入服务条目。args 与 cwd 使用 ${PLUGIN_ROOT}，不得依赖启动时的工作目录。探针与隔离测试必须读取发布清单，而不是硬编码启动命令。发布机器还须执行 npm run test:codex-loader，使用隔离 CODEX_HOME 下的真实 Codex App Server 复现旧配置错误，并确认新配置返回打开画布工具。
 
 构建后必须在隔离临时目录中只复制发布文件，清空 `ZHONGXING_CANVAS_ROOT`，不运行 4317/4318，不提供 `node_modules`，实际启动 MCP、读取 Widget、创建任务，并验证升级后测试数据仍存在。随后才能打标签和发布 Release。

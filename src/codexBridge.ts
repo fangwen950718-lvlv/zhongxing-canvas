@@ -61,6 +61,8 @@ export async function requestCanvasFullscreen() {
 
 async function getMcpApp() {
   if (window.parent === window) return null;
+  const shared = window as Window & { __ZHONGXING_MCP_APP__?: Promise<McpApp> };
+  if (shared.__ZHONGXING_MCP_APP__) return shared.__ZHONGXING_MCP_APP__;
   if (!appPromise) {
     appPromise = (async () => {
       try {

@@ -2,9 +2,18 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pluginLaunchConfig } from './plugin-launch-config.mjs';
+import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 await pluginLaunchConfig(root);
+const widget = await readFile(join(root, 'mcp/generated/zhongxing-canvas-widget.html'));
+if (widget.length > 250_000) throw new Error('Widget entry exceeds 250 KB host-size budget');
+const assetManifest = JSON.parse(await readFile(join(root, 'mcp/generated/asset-manifest.json'), 'utf8'));
+for (const [id, entry] of Object.entries(assetManifest)) {
+  const bytes = await readFile(join(root, 'mcp/generated/assets', entry.file));
+  if (bytes.length !== entry.bytes || createHash('sha256').update(bytes).digest('hex') !== entry.sha256) throw new Error(`Asset corrupted: ${id}`);
+}
 const required = ['plugin.json','mcp.json','.codex-plugin/plugin.json','.mcp.json','.agents/plugins/marketplace.json','scripts/start-mcp.mjs','mcp/generated/server.mjs','mcp/generated/zhongxing-canvas-widget.html','mcp/generated/release-manifest.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md'];
 for (const file of required) await access(join(root, file));
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
@@ -20,7 +29,7 @@ const files = (await Promise.all(scanRoots.map((entry) => filesAt(join(root, ent
 const forbidden = [/\/Users\/w\.fang/g, /127\.0\.0\.1:4318/g, /ZHONGXING_CANVAS_ROOT/g, /cowart_mcp/g, /plugins\/zhongxing-canvas\/mcp/g];
 for (const file of files) {
   if (/\.(png|jpg|jpeg|webp|gif|woff2?)$/i.test(file)) continue;
-  const text = await readFile(file, 'utf8');
+  const text = file.endsWith('.gz') ? gunzipSync(await readFile(file)).toString('utf8') : await readFile(file, 'utf8');
   for (const pattern of forbidden) if (pattern.test(text)) throw new Error(`${relative(root, file)} contains forbidden ${pattern}`);
 }
 console.log(`OK: release ${pkg.version}, ${files.length} files checked.`);

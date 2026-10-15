@@ -45,7 +45,10 @@ try {
   if (unchanged.structuredContent.projectJSON !== restored.structuredContent.projectJSON) throw new Error('Corrupt input overwrote project');
   const opened = await clientB.callTool({ name: 'open_zhongxing_independent_canvas', arguments: {} });
   const widget = await clientB.readResource({ uri: opened._meta['ui/resourceUri'] });
-  if ((widget.contents?.[0]?.text || '').length < 1_000_000) throw new Error('Widget resource is incomplete');
+  const text = widget.contents?.[0]?.text || '';
+  if (text.length < 1000 || Buffer.byteLength(text) > 250_000) throw new Error('Widget entry violates size budget');
+  const asset = await clientB.callTool({ name: 'read_zhongxing_widget_asset', arguments: { id: 'application.js.gz', offset: 0 } });
+  if (asset.isError || !asset.structuredContent?.base64) throw new Error('Bundled assets missing');
 } finally { await clientB.close(); }
 
 const report = { ok: true, sandbox, dataDir, briefId, imageId, releaseHasNodeModules: false, usedLocalhost4318: false, dataSurvivedUpgrade: true };

@@ -1,7 +1,7 @@
 // Test-only MCP Apps host. Uses the release MCP over stdio and deterministic
 // fixtures to verify UI messages and result insertion without spending AI credits.
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { build } from 'esbuild';
@@ -9,14 +9,16 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const root = resolve(process.argv[2] || 'release/zhongxing-canvas');
-const dataDir = await mkdtemp(join(tmpdir(), 'canvas-widget-host-'));
+const dataDir = process.env.ZHONGXING_TEST_DATA_DIR || await mkdtemp(join(tmpdir(), 'canvas-widget-host-'));
 const fixture = join(dataDir, 'fixture.png');
 await writeFile(fixture, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6L8AAAAASUVORK5CYII=', 'base64'));
+if (process.env.ZHONGXING_TEST_IMAGE) await cp(process.env.ZHONGXING_TEST_IMAGE, fixture);
 const client = new Client({ name: 'widget-host-test', version: '2.0.0' }, { capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } } });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: ['./scripts/start-mcp.mjs'], cwd: root, env: { ...process.env, ZHONGXING_CANVAS_DATA_DIR: dataDir } }));
 const opened = await client.callTool({name:'open_zhongxing_independent_canvas',arguments:{}});
 const resource = await client.readResource({ uri: opened._meta['ui/resourceUri'] });
 const html = resource.contents[0].text;
+if (Buffer.byteLength(html) > 250_000) throw new Error('Refusing oversized UI resource in acceptance host');
 const events = [];
 const hostSource = `
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
@@ -36,7 +38,11 @@ const http = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'GET' && req.url === '/') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<!doctype html><html><body style="margin:0"><iframe title="众行 MCP App 测试" style="border:0;width:100vw;height:100vh" sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"></iframe><script type="module" src="/host.js"></script></body></html>'); return; }
     if (req.method === 'GET' && req.url === '/host.js') { res.setHeader('Content-Type', 'application/javascript'); res.end(bridgeJS); return; }
-    if (req.method === 'GET' && req.url === '/widget') { res.setHeader('Content-Type', 'text/html'); res.end(html); return; }
+    if (req.method === 'GET' && req.url === '/widget') {
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; worker-src blob:; frame-src 'none'");
+      res.end(html); return;
+    }
     if (req.method === 'GET' && req.url === '/events') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ dataDir, events })); return; }
     if (req.method !== 'POST') { res.statusCode=404; res.end(); return; }
     let body=''; for await (const chunk of req) { body+=chunk; if (body.length>150_000_000) throw new Error('Test payload too large'); }

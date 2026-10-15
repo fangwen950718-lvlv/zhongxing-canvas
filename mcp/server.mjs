@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import packageInfo from '../package.json' with { type: 'json' };
+import { readWidgetAsset } from './runtime/widget-assets.mjs';
 import { loadProject, saveProject } from './runtime/projects.mjs';
 import { completeBriefJob, completeImageJob, createBriefJob, createImageEditJob, createImageJob, publicImageJob, readBriefJob, runtime, setBriefJobState, setImageJobState } from './runtime/job-store.mjs';
 
@@ -16,6 +17,13 @@ const ratioSchema = z.enum(['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3']);
 const referenceImagesSchema = z.array(z.object({ name: z.string().trim().min(1).max(160), dataURL: z.string().max(12_000_000) })).optional();
 const creativeOptionSchema = z.object({ title: z.string().trim().min(1).max(120), proposal: z.string().trim().min(1).max(30000), sections: z.array(z.object({ label: z.string().trim().min(1).max(40), content: z.string().trim().min(1).max(5000) })).min(4).max(8).optional(), imagePrompt: z.string().trim().min(1).max(30000) });
 const server = new McpServer({ name: 'zhongxing_canvas', version: VERSION }, { instructions: '当用户要求打开众行无限画布时，调用 open_zhongxing_independent_canvas。画布是插件内置 MCP App，不需要 localhost、Vite 或 Cowart。画布内任务会通过当前 Codex 对话调用本插件工具并回填。' });
+
+registerAppTool(server, 'read_zhongxing_widget_asset', {
+  title: '读取画布内置资源', description: '仅供画布启动与字体加载使用，按固定大小分块读取插件内置资源。',
+  inputSchema: { id: z.string().min(1).max(240), offset: z.number().int().min(0).default(0) },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true },
+}, async ({ id, offset }) => ({ content: [], structuredContent: await readWidgetAsset(dirname(WIDGET_HTML), id, offset) }));
 
 registerAppResource(server, 'zhongxing-canvas-widget', WIDGET_URI, {}, async () => ({ contents: [{ uri: WIDGET_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(WIDGET_HTML, 'utf8'), _meta: { ui: { prefersBorder: false, csp: { resourceDomains: ['data:', 'blob:'] } }, 'openai/widgetDescription': '众行无限画布：内置 Excalidraw、视觉方案、参考图、生图与标注修改。', 'openai/widgetPrefersBorder': false, 'openai/widgetCSP': { connect_domains: [], resource_domains: ['data:', 'blob:'] } } }] }));
 

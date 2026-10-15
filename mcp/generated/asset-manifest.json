@@ -1,0 +1,16 @@
+{
+  "application.js.gz": {
+    "file": "application.js.gz",
+    "bytes": 15757470,
+    "mimeType": "text/javascript",
+    "encoding": "gzip",
+    "sha256": "74c0964a2887a2d689f08b934ea2ba0ccf810b992d191c33d9289fcdb9cf8687"
+  },
+  "application.css.gz": {
+    "file": "application.css.gz",
+    "bytes": 109636,
+    "mimeType": "text/css",
+    "encoding": "gzip",
+    "sha256": "6dffaf6a01f2fa958159aa2ec8dd28287bf325c6e3eb315b962c2ec251bb6c0d"
+  }
+}
