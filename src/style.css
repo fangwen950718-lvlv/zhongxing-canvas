@@ -104,7 +104,11 @@ header {
   transform: translate(-50%,-50%);
   object-fit: contain;
 }
-.zone-mark{display:flex;align-items:center;gap:.08em;color:#ff3d0a;font-weight:900;font-size:34px;line-height:.8;letter-spacing:-.08em}.zone-mark span{font-size:.72em;letter-spacing:0}
+.brand img.brand-logo {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
 .brand-sub {
   display: block;
   font-size: 10px;

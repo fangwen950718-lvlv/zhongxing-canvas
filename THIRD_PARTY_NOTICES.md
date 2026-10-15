@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Brand asset
+
+`assets/zhongxing-logo.png` is the original 众行传播 logo supplied by the project owner and included at their explicit request. Brand and trademark rights remain with their respective owner; the code's MIT license does not grant trademark rights or a general license to reuse this logo.
+
 The distributed Widget bundles the following major open-source components:
 
 - Excalidraw 0.18.1 — MIT License, copyright Excalidraw contributors.

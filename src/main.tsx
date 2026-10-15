@@ -14,6 +14,7 @@ import type {
 } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import "./style.css";
+import brandLogo from "../assets/zhongxing-logo.png";
 import {
   BUILD,
   cleanAppState,
@@ -347,7 +348,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       {jobStatus&&<div className="job-status" role="status">✧ {jobStatus}<button onClick={()=>setJobStatus('')}>收起</button></div>}
       <header>
         <div className="brand">
-          <div className="zone-mark" role="img" aria-label="众行">ZONE<span>∞</span></div>
+          <img className="brand-logo" src={brandLogo} alt="众行传播" />
         </div>
         <div className="project-meta">
           <input
