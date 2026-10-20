@@ -57,7 +57,15 @@ const http = createServer(async (req, res) => {
         await client.callTool({name:'complete_zhongxing_brief_job',arguments:{id,options:[1,2,3].map(n=>({title:'测试方向 '+n,proposal:'确定性测试方案 '+n,sections:[{label:'创意主轴',content:'测试主体'},{label:'视觉主体',content:'单一物体'},{label:'构图层级',content:'主体居中'},{label:'风险提示',content:'仅为验收夹具'}],imagePrompt:'仅用于验收的测试图 '+n}))}});
       } else {
         await client.callTool({name:'start_zhongxing_image_job',arguments:{id}});
-        await client.callTool({name:'complete_zhongxing_image_job',arguments:{id,file:fixture}});
+        let result=fixture;
+        if(process.env.ZHONGXING_TEST_RESULTS_DIR) {
+          const response=await client.callTool({name:'get_zhongxing_image_job',arguments:{id}});
+          const job=response.structuredContent.job;
+          if(job.kind==='remove-background') result=join(process.env.ZHONGXING_TEST_RESULTS_DIR,'cutout.png');
+          if(job.kind==='relayout') result=join(process.env.ZHONGXING_TEST_RESULTS_DIR,job.width>job.height?'wide.png':'portrait.png');
+        }
+        const completed=await client.callTool({name:'complete_zhongxing_image_job',arguments:{id,file:result}});
+        if(completed.isError)throw new Error(completed.content?.find(c=>c.type==='text')?.text||'Test result rejected');
       }
       res.end('{}'); return;
     }

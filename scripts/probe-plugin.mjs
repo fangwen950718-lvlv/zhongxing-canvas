@@ -17,6 +17,8 @@ await client.connect(transport);
 try {
   const listed = await client.listTools();
   const names = listed.tools.map((tool) => tool.name);
+  const opening=listed.tools.find(tool=>tool.name==='open_zhongxing_independent_canvas');
+  if(!opening?._meta?.['openai/ui']?.entrypoints?.some(entry=>entry.type==='global'))throw new Error('Missing sidebar entrypoint');
   for (const name of ['open_zhongxing_independent_canvas','create_zhongxing_image_job','create_zhongxing_image_edit_job','get_zhongxing_image_job','start_zhongxing_image_job','complete_zhongxing_image_job','fail_zhongxing_image_job','create_zhongxing_brief_job','get_zhongxing_brief_job','complete_zhongxing_brief_job','fail_zhongxing_brief_job']) {
     if (!names.includes(name)) throw new Error(`Missing tool: ${name}`);
   }

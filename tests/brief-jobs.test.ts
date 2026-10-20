@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { effectiveRules } from '../src/ruleLibraryState';
 
 process.env.ZHONGXING_TEST_RUNTIME = await mkdtemp(join(tmpdir(), 'zhongxing-brief-test-'));
 const { createBriefJob, readBriefJob, setBriefJobState, completeBriefJob } = await import('../scripts/brief-jobs.mjs');
@@ -40,4 +41,11 @@ test('brief task rejects empty input and completed overwrite', async () => {
   const job = await createBriefJob({ brief: '测试 brief', ruleText: '测试审美规则' });
   await completeBriefJob(job.id, '方案', '提示词');
   await assert.rejects(completeBriefJob(job.id, '覆盖', '覆盖'), /不覆盖/);
+});
+test('brief task stores exactly the previewed editable rule snapshot',async()=>{
+  const ruleText=effectiveRules({commonRulesText:'工作顺序：先看参考图。\n画面规则：黑白构图。'},{label:'新规则',rules:'层级规则：仅给方向。'});
+  const job=await createBriefJob({brief:'测试',ruleText});
+  assert.equal((await readBriefJob(job.id)).ruleText,ruleText);
+  const prompt=makeBriefPrompt({brief:'测试',ruleText});
+  assert(prompt.includes(ruleText));assert(!prompt.includes('单母体收敛'));
 });

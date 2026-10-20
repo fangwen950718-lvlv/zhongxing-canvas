@@ -1,7 +1,8 @@
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { getUserDataRoot } from './data-dir.mjs';
+import { validateDimensions, normalizeImageOutput } from './image-output.mjs';
 
 export const runtime = getUserDataRoot();
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -72,6 +73,24 @@ export async function createImageEditJob(input) {
   return persist(imageJobPath(id), { id, kind: 'edit', prompt: input.prompt.trim(), ratio: input.ratio, width: Math.round(input.width), height: Math.round(input.height), sourceWidth: Math.round(input.width), sourceHeight: Math.round(input.height), originalPath, annotatedPath, ...references, status: 'queued', createdAt: new Date().toISOString() });
 }
 export async function readImageJob(id) { return JSON.parse(await readFile(imageJobPath(id), 'utf8')); }
+export async function createImageActionJob(input) {
+  if (!['relayout', 'remove-background'].includes(input.kind)) throw new Error('无效图片操作');
+  validateDimensions(input.sourceWidth, input.sourceHeight);
+  validateDimensions(input.width, input.height);
+  if (typeof input.sourceImageId !== 'string' || !input.sourceImageId || input.sourceImageId.length > 200) throw new Error('来源图片标识无效');
+  if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 12000) throw new Error('图片操作要求无效');
+  const original = parseDataURL(input.originalDataURL);
+  const id = randomUUID(), dir = join(runtime, 'job-inputs');
+  await mkdir(dir, { recursive: true });
+  const originalPath = join(dir, `${id}-original.${original.ext}`);
+  await writeFile(originalPath, original.bytes, { mode: 0o600 });
+  return persist(imageJobPath(id), { id, kind: input.kind, prompt: input.prompt.trim(), sourceImageId: input.sourceImageId, sourceWidth: input.sourceWidth, sourceHeight: input.sourceHeight, width: input.width, height: input.height, ratio: `${input.width}:${input.height}`, originalPath, outputFormat: 'png', transparent: input.kind === 'remove-background', status: 'queued', createdAt: new Date().toISOString() });
+}
+export async function retryImageJob(id) {
+  const job = await readImageJob(id);
+  if (job.status !== 'failed') throw new Error('只有失败任务可以重试');
+  return persist(imageJobPath(id), { ...job, status: 'queued', message: '等待重新发送到 Codex', attempts: (job.attempts || 0) + 1, updatedAt: new Date().toISOString() });
+}
 export async function setImageJobState(id, status, message) {
   const job = await readImageJob(id);
   if (!['running', 'failed'].includes(status)) throw new Error('无效状态');
@@ -81,16 +100,21 @@ export async function setImageJobState(id, status, message) {
 export async function completeImageJob(id, file) {
   const job = await readImageJob(id);
   if (job.status === 'completed') throw new Error('该任务已完成，不覆盖原结果');
-  const source = resolve(file), bytes = await readFile(source);
+  const source = resolve(file); let bytes = await readFile(source);
   if (bytes.length > 25 * 1024 * 1024) throw new Error('图片超过 25MB');
+  if (['relayout', 'remove-background'].includes(job.kind)) {
+    try { bytes = normalizeImageOutput(job, bytes); if (bytes.length > 25 * 1024 * 1024) throw new Error('处理后的图片超过 25MB'); }
+    catch (error) { await setImageJobState(id, 'failed', error.message); throw error; }
+  }
   const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
   const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   const webp = bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
   if (!png && !jpeg && !webp) throw new Error('只接受真实 PNG/JPEG/WebP 文件');
   const mimeType = png ? 'image/png' : jpeg ? 'image/jpeg' : 'image/webp', ext = png ? 'png' : jpeg ? 'jpg' : 'webp';
   const imageDir = join(runtime, 'images'); await mkdir(imageDir, { recursive: true });
-  const imageName = `${id}.${ext}`; await copyFile(source, join(imageDir, imageName));
-  return persist(imageJobPath(id), { ...job, status: 'completed', progress: 100, message: '图片生成完成，已返回画布', imageName, mimeType, updatedAt: new Date().toISOString() });
+  const imageName = `${id}.${ext}`; await writeFile(join(imageDir, imageName), bytes, { mode: 0o600 });
+  const dimensions = job.kind === 'remove-background' ? {width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),ratio:`${bytes.readUInt32BE(16)}:${bytes.readUInt32BE(20)}`} : {};
+  return persist(imageJobPath(id), { ...job, ...dimensions, status: 'completed', progress: 100, message: '图片生成完成，已返回画布', imageName, mimeType, updatedAt: new Date().toISOString() });
 }
 export async function publicImageJob(id) {
   const job = await readImageJob(id);

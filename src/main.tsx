@@ -20,7 +20,6 @@ import {
   cleanAppState,
   emptyProject,
   parseProject,
-  rules,
   type Project,
   type CreativeOption,
 } from "./project";
@@ -28,15 +27,22 @@ import { loadProject, saveProject, saveLocation } from "./storage";
 import CanvasToolbar from './CanvasToolbar';
 import ImageGenerator, { type ImageJob } from './ImageGenerator';
 import AnnotationEditor from './AnnotationEditor';
-import { createBriefJob, getBriefJob, getImageJob, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
+import ImageActions from './ImageActions';
+import { commandForImageJob, imageActionFrame, nextImagePosition, imageActionsPosition } from './imageActionUtils';
+import { groupExistingAnnotations, selectedAnnotationImage } from './annotationGroups';
+import { createBriefJob, getBriefJob, getImageJob, retryImageJob, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { defaultRulePreset, rulePresets, type RuleLibrary } from './creativeRules';
+import RuleEditor from './RuleEditor';
+import { availableRules, applyRules, commonRules, effectiveRules } from './ruleLibraryState';
+
+const defaultLibraries=Object.values(rulePresets).map(rule=>({id:rule.id,name:rule.label,content:rule.rules,createdAt:'2026-01-01T00:00:00.000Z'}));
 
 function resolveRuleLibrary(project: Project): RuleLibrary {
   const id = project.ruleLibraryId || project.rulePreset || defaultRulePreset;
-  const custom = project.customRuleLibraries?.find((library) => library.id === id);
-  if (custom) return { id: custom.id, label: custom.name, description: '用户上传的完整审美规则库。', rules: custom.content, source: 'uploaded' };
-  return rulePresets[id as keyof typeof rulePresets] || rulePresets[defaultRulePreset];
+  const libraries=availableRules(project,defaultLibraries);
+  const library=libraries.find(rule=>rule.id===id)||libraries[0];
+  return {id:library?.id||'',label:library?.name||'暂无规则',description:'',rules:library?.content||'',source:'uploaded'};
 }
 
 function proposalParagraphs(proposal: string) {
@@ -76,7 +82,7 @@ async function validateImages(p: Project) {
       await image.decode();
     }),
   );
-  return p;
+  return {...p,scene:{...p.scene,elements:groupExistingAnnotations(p.scene.elements)}};
 }
 function App({ initial, loadError }: { initial: Project; loadError: string }) {
   const [project, setProject] = useState(initial),
@@ -96,7 +102,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     input = useRef<HTMLInputElement>(null),
     lastScene = useRef("");
   const imageInput = useRef<HTMLInputElement>(null);
-  const knowledgeInput = useRef<HTMLInputElement>(null);
+  const [showRuleEditor,setShowRuleEditor]=useState(false);
   const [editorApi,setEditorApi]=useState<ExcalidrawImperativeAPI|null>(null);
   const [activeTool,setActiveTool]=useState('selection');
   const [showImageGenerator,setShowImageGenerator]=useState(false);
@@ -109,14 +115,29 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   const [annotationImageId,setAnnotationImageId]=useState('');
   const polling=useRef(false);
   const [jobStatus,setJobStatus]=useState('');
+  const [retryJobId,setRetryJobId]=useState('');
+  const [retryBusy,setRetryBusy]=useState(false);
+  async function resendImageJob() {
+    if(!retryJobId||retryBusy)return;
+    setRetryBusy(true);
+    try {
+      let job=await getImageJob(retryJobId);
+      if(job.status==='failed') job=await retryImageJob(job.id);
+      if(job.status==='completed') {setRetryJobId('');return;}
+      const sent=await sendCodexMessage(commandForImageJob(job));
+      setJobStatus(sent?'已重新发送图片任务，请查看当前对话进度。':'发送未成功，任务输入已保留，可再次重试。');
+    }catch(error){setJobStatus(`重试失败：${error instanceof Error?error.message:error}`);}
+    finally{setRetryBusy(false);}
+  }
   function placeImageJob(job:ImageJob, near?:ExcalidrawElement){
     const a=api.current;if(!a)return;const s=a.getAppState();const existing=a.getSceneElements();
-    const width=near?.width||400,height=near?.height||400*job.height/job.width;
-    const x=near?near.x+near.width+60:existing.length?Math.max(...existing.map(e=>e.x+e.width))+60:-s.scrollX+s.width/(2*s.zoom.value)-width/2;
-    const y=near?.y??(-s.scrollY+s.height/(2*s.zoom.value)-height/2);
-    const elements=convertToExcalidrawElements([{type:'rectangle',x,y,width,height,roughness:0,strokeColor:'#8aa27a',backgroundColor:'#f1f5ec',fillStyle:'solid',strokeStyle:'dashed',label:{text:`AI 生图 · 等待 Codex\n${job.ratio}\n${job.prompt.slice(0,70)}`,fontSize:16,fontFamily:2}}]);
+    const {width,height}=imageActionFrame(job,near);
+    const candidateX=near?near.x+near.width+60:existing.length?Math.max(...existing.map(e=>e.x+e.width))+60:-s.scrollX+s.width/(2*s.zoom.value)-width/2;
+    const candidateY=near?.y??(-s.scrollY+s.height/(2*s.zoom.value)-height/2);
+    const {x,y}=nextImagePosition({x:candidateX,y:candidateY,width,height},existing);
+    const elements=convertToExcalidrawElements([{type:'rectangle',x,y,width,height,roughness:0,strokeColor:'#909090',backgroundColor:'#f2f2f2',fillStyle:'solid',strokeStyle:'dashed',label:{text:`${job.kind==='relayout'?'延展尺寸':job.kind==='remove-background'?'去除背景':'AI 生图'} · 等待 Codex\n${job.width}×${job.height}\n${job.prompt.slice(0,70)}`,fontSize:16,fontFamily:2}}]);
     const decorated=elements.map(e=>({...e,customData:{zhongxingImageJobId:job.id}}));
-    a.updateScene({elements:[...existing,...decorated],captureUpdate:CaptureUpdateAction.IMMEDIATELY});a.scrollToContent(decorated);setJobStatus('任务已准备，正在发送到 Codex。');
+    a.updateScene({elements:[...existing,...decorated],captureUpdate:CaptureUpdateAction.IMMEDIATELY});a.scrollToContent(decorated);setRetryJobId('');setJobStatus('任务已准备，正在发送到 Codex。');
   }
   useEffect(()=>{const timer=setInterval(async()=>{
     const a=api.current;if(!a||polling.current)return;
@@ -125,7 +146,9 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     try{for(const holder of holders){
       const id=holder.customData!.zhongxingImageJobId as string;
       const job:ImageJob=await getImageJob(id);
-      if(job.status!=='completed'||!job.dataURL){const events=(job.progressEvents||[]).slice(-3).map(event=>`• ${event.text}`).join('\n');setJobStatus(job.status==='failed'?`生图未完成：${job.message||'请在 Codex 中查看原因'}`:`${job.progress||0}% · ${job.message||'等待 Codex 开始处理…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);continue;}
+      if(job.status==='failed')setRetryJobId(job.id);
+      if(job.status==='running')setRetryJobId(previous=>previous===job.id?'':previous);
+      if(job.status!=='completed'||!job.dataURL){const events=(job.progressEvents||[]).slice(-3).map(event=>`• ${event.text}`).join('\n');setJobStatus(job.status==='failed'?`生图未完成：${job.message||'请在 Codex 中查看原因'}`:`${typeof job.progress==="number"?`${job.progress}% · `:""}${job.message||'等待 Codex 开始处理…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);continue;}
       const img=new Image();img.src=job.dataURL;await img.decode();
       // Re-check after asynchronous work: never insert into a switched project or deleted frame.
       const current=a.getSceneElements();const target=current.find(e=>e.id===holder.id);if(!target)continue;
@@ -133,12 +156,12 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       const fileId=job.id as BinaryFileData['id'];a.addFiles([{id:fileId,mimeType:job.mimeType as BinaryFileData['mimeType'],dataURL:job.dataURL as BinaryFileData['dataURL'],created:Date.now()}]);
       const image=convertToExcalidrawElements([{type:'image',fileId,x:target.x+(target.width-w)/2,y:target.y+(target.height-h)/2,width:w,height:h,status:'saved',customData:{zhongxingCompletedJobId:job.id,prompt:job.prompt,ratio:job.ratio}}]);
       update({...live.current,imageJobReceipts:[...(live.current.imageJobReceipts||[]),job.id]});
-      a.updateScene({elements:[...current.filter(e=>e.customData?.zhongxingImageJobId!==job.id),...image],captureUpdate:CaptureUpdateAction.IMMEDIATELY});setJobStatus('生成图片已放回画布，正在本地保存。');
+      a.updateScene({elements:[...current.filter(e=>e.customData?.zhongxingImageJobId!==job.id),...image],captureUpdate:CaptureUpdateAction.IMMEDIATELY});setRetryJobId(previous=>previous===job.id?'':previous);setJobStatus(job.kind==='relayout'?'延展图片已放回画布，请核对文字与细节。':job.kind==='remove-background'?'透明 PNG 已放回画布，原图已保留。':'生成图片已放回画布，正在本地保存。');
     }}catch{setJobStatus('暂未取得生成结果，本地任务仍保留；请确认服务运行后重试。');}finally{polling.current=false;}
   },2000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{if(!briefJobId)return;const timer=setInterval(async()=>{try{const job=await getBriefJob(briefJobId);const options=job.options?.length?job.options:(job.proposal&&job.imagePrompt?[{title:'方案',proposal:job.proposal,imagePrompt:job.imagePrompt}]:[]);if(job.status==='completed'&&options.length){update({...live.current,aiOptions:options,aiSelectedOption:0,aiProposal:options[0].proposal,aiImagePrompt:options[0].imagePrompt});setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(options.length===3?'三组方案与提示词已生成，请选择一个方向。':'方案与 demo 级提示词已生成，可以直接生图。');}else if(job.status==='failed'){setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(`方案生成失败：${job.message||'请在 Codex 中查看原因'}`);}else{const events=(job.progressEvents||[]).slice(-2).map(event=>`• ${event.text}`).join('\n');setBriefProgress(`${job.progress||0}% · ${job.message||'Codex 正在整理视觉方案…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);}}catch{/* 保留任务并继续轮询 */}},1800);return()=>clearInterval(timer);},[briefJobId]);
   const [backup, setBackup] = useState("");
-  const [imageExport, setImageExport] = useState<{url:string;name:string}|null>(null);
+  const [imageExport, setImageExport] = useState<{url:string;name:string;savedPath?:string}|null>(null);
   useEffect(() => () => { if(imageExport) URL.revokeObjectURL(imageExport.url); }, [imageExport]);
   async function importImage(file?: File) {
     if (!file || !api.current) return;
@@ -284,31 +307,16 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   async function submitBrief() {
     const brief=(live.current.creativeBrief||'').trim();
     if(!brief){setNotice('请先输入生图 brief。');return;}
+    if(!resolveRuleLibrary(live.current).id){setNotice('请先在“编辑”中上传审美规则。');return;}
     setBriefBusy(true);setNotice('');
     try{
       const library=resolveRuleLibrary(live.current);
-      const job=await createBriefJob({brief,rulePreset:library.id,ruleLabel:library.label,ruleText:library.rules});setBriefJobId(job.id);
+      const ruleText=effectiveRules(live.current,library);
+      if(ruleText.length>120000)throw new Error('当前分类规则与通用底层规则合计超过 120000 字，请先精简内容。');
+      const job=await createBriefJob({brief,rulePreset:library.id,ruleLabel:library.label,ruleText});setBriefJobId(job.id);
       const sent=job.automationStarted || await sendCodexMessage(`这是由众行画布发起的视觉方案任务。使用 $zhongxing-canvas-brief 处理任务 ${job.id}。依据任务内指定的知识规则并列输出 3 个差异明确的 OP，每个 OP 配套一个 demo 级生图提示词，并回填画布。`);
       if(!sent&&!job.handoffQueued&&!job.automationStarted){setBriefJobId('');setBriefBusy(false);setNotice('当前页面不能调用 Codex。请从 Codex 插件中重新打开众行画布后重试。');}
     }catch(error){setBriefBusy(false);setNotice(`方案任务创建失败：${error instanceof Error?error.message:'请重试'}`);}
-  }
-  async function importKnowledge(file?: File) {
-    if (!file) return;
-    try {
-      if (!/\.(md|txt|json)$/i.test(file.name)) throw new Error('请选择 Markdown、TXT 或 JSON 文本文件。');
-      if (file.size > 120 * 1024) throw new Error('知识文件请小于 120 KB。');
-      const text = await file.text();
-      if (!text.trim()) throw new Error('知识文件没有可用文字。');
-      const id = `uploaded-${crypto.randomUUID()}`;
-      const name = file.name.replace(/\.(md|txt|json)$/i, '');
-      const library = { id, name, content: text.slice(0, 120000), createdAt: new Date().toISOString() };
-      update({ ...live.current, ruleLibraryId: id, customRuleLibraries: [...(live.current.customRuleLibraries || []), library], customKnowledgeName: '', customKnowledge: '', aiOptions: [], aiProposal: '', aiImagePrompt: '' });
-      setNotice(`审美规则库「${name}」已添加并选中。`);
-    } catch (error) {
-      setNotice(`知识文件读取失败：${error instanceof Error ? error.message : '请重试'}`);
-    } finally {
-      if (knowledgeInput.current) knowledgeInput.current.value = '';
-    }
   }
   async function exportImage(type: "png" | "svg") {
     try {
@@ -335,7 +343,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   const creativeOptions=project.aiOptions?.length?project.aiOptions:(project.aiProposal&&project.aiImagePrompt?[{title:'方案',proposal:project.aiProposal,imagePrompt:project.aiImagePrompt}]:[]);
   const selectedOption=creativeOptions[Math.min(project.aiSelectedOption||0,creativeOptions.length-1)];
   const selectedLibrary=resolveRuleLibrary(project);
-  const customLibraries=project.customRuleLibraries||[];
+  const libraries=availableRules(project,defaultLibraries);
   const displaySections=(option?:CreativeOption)=>option?.sections?.length?option.sections:null;
   function setCanvasMode(key:'objectsSnapModeEnabled'|'gridModeEnabled',enabled:boolean){
     const a=api.current;if(!a)return;
@@ -345,7 +353,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   return (
     <div className="app">
       {showImageGenerator&&<ImageGenerator initialPrompt={imageGeneratorPrompt} onClose={()=>setShowImageGenerator(false)} onCreated={placeImageJob}/>} 
-      {jobStatus&&<div className="job-status" role="status">✧ {jobStatus}<button onClick={()=>setJobStatus('')}>收起</button></div>}
+      {jobStatus&&<div className="job-status" role="status">{jobStatus}{retryJobId&&<button disabled={retryBusy} onClick={()=>void resendImageJob()}>{retryBusy?'正在重发…':'重新发送 / 重试'}</button>}<button onClick={()=>setJobStatus('')}>收起</button></div>}
       <header>
         <div className="brand">
           <img className="brand-logo" src={brandLogo} alt="众行传播" />
@@ -379,8 +387,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
           onChange={(e) => void importProject(e.target.files?.[0])}
         />
         <input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,image/avif" ref={imageInput} onChange={(e) => void importImage(e.target.files?.[0])} />
-        <input hidden type="file" accept=".md,.txt,.json,text/plain,text/markdown,application/json" ref={knowledgeInput} onChange={(e) => void importKnowledge(e.target.files?.[0])} />
       </header>
+      {showRuleEditor&&<RuleEditor libraries={libraries} commonText={commonRules(project)} onClose={()=>setShowRuleEditor(false)} onSave={(next,commonRulesText)=>{update({...applyRules(live.current,next,defaultLibraries),commonRulesText});setShowRuleEditor(false);setNotice('审美规则已保存。');}}/>}
       {notice && (
         <div className="notice" role="alert">
           <span>{notice}</span>
@@ -434,15 +442,12 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
                 <label>
                   审美规则
                   <select value={selectedLibrary.id} onChange={(event)=>update({...live.current,ruleLibraryId:event.target.value,rulePreset:Object.hasOwn(rulePresets,event.target.value)?event.target.value:live.current.rulePreset,aiOptions:[],aiProposal:'',aiImagePrompt:''})}>
-                    <optgroup label="系统内置">
-                      {Object.values(rulePresets).map((preset)=><option key={preset.id} value={preset.id}>{preset.label}</option>)}
-                    </optgroup>
-                    {customLibraries.length>0&&<optgroup label="我的知识库">{customLibraries.map((library)=><option key={library.id} value={library.id}>{library.name}</option>)}</optgroup>}
+                    {!libraries.length&&<option value="">暂无规则</option>}
+                    {libraries.map(library=><option key={library.id} value={library.id}>{library.name}</option>)}
                   </select>
                 </label>
-                <button className="knowledge-upload" onClick={()=>knowledgeInput.current?.click()}>＋ 上传规则</button>
+                <button className="knowledge-upload" onClick={()=>setShowRuleEditor(true)}>编辑</button>
               </div>
-              <div className="knowledge-note"><span className="knowledge-origin">{selectedLibrary.source==='built-in'?'系统内置':'我的知识库'}</span>{selectedLibrary.description}{selectedLibrary.source==='uploaded'&&<button aria-label="删除当前知识库" title="删除当前知识库" onClick={()=>update({...live.current,ruleLibraryId:defaultRulePreset,customRuleLibraries:customLibraries.filter((library)=>library.id!==selectedLibrary.id),aiOptions:[],aiProposal:'',aiImagePrompt:''})}>删除</button>}</div>
               <button className="primary" disabled={briefBusy || !(project.creativeBrief || '').trim()} onClick={() => void submitBrief()}>
                 {briefBusy ? 'Codex 正在整理…' : '生成方案'} <span>↗</span>
               </button>
@@ -468,13 +473,13 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
                   </button>
                 </section>
               )}
-              <details className="rules-compact"><summary>当前审美规则 · {selectedLibrary.label}</summary><pre>{`${selectedLibrary.rules}\n\n众行通用底层规则\n${rules}`}</pre></details>
+              <details className="rules-compact"><summary>当前审美规则 · {selectedLibrary.label}</summary><pre>{effectiveRules(project,selectedLibrary)}</pre></details>
             </div>
           )}
         </aside>
         <main>
           <CanvasToolbar api={editorApi} activeTool={activeTool} onImage={()=>imageInput.current?.click()} onGenerate={()=>{setImageGeneratorPrompt('');setShowImageGenerator(true);}}/>
-          {selectedImageId&&selectedImageAction&&!annotationImageId&&<div className="selection-action" style={selectedImageAction}><button onClick={()=>setAnnotationImageId(selectedImageId)}>↗ 修改标注</button></div>}
+          {selectedImageId&&selectedImageAction&&!annotationImageId&&editorApi&&<ImageActions key={selectedImageId} api={editorApi} image={editorApi.getSceneElements().find(e=>e.id===selectedImageId)!} position={selectedImageAction} projectName={project.name} onAnnotate={()=>setAnnotationImageId(selectedImageId)} onCreated={placeImageJob} onStatus={setJobStatus} onRetryNeeded={setRetryJobId} onDownload={(blob,name,savedPath)=>{if(!savedPath)download(blob,name);setImageExport({url:URL.createObjectURL(blob),name,savedPath});}}/>}
           <Excalidraw
             key={epoch}
             excalidrawAPI={(instance) => {
@@ -499,13 +504,10 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
             }}
             onChange={(elements, appState, files) => {
               setActiveTool(appState.activeTool.type);
-              const selectedIds=Object.keys(appState.selectedElementIds).filter(id=>appState.selectedElementIds[id]);
-              const selected=selectedIds.length===1?elements.find(element=>element.id===selectedIds[0]&&element.type==='image'):undefined;
+              const selected=selectedAnnotationImage(elements,appState.selectedElementIds);
               setSelectedImageId(selected?.id||'');
               if(selected){
-                const zoom=appState.zoom.value;
-                const left=Math.min(appState.width-150,Math.max(12,(selected.x+appState.scrollX+selected.width)*zoom+12));
-                const top=Math.min(appState.height-52,Math.max(82,(selected.y+appState.scrollY)*zoom));
+                const {left,top}=imageActionsPosition(selected,appState);
                 setSelectedImageAction(previous=>previous&&Math.abs(previous.left-left)<0.5&&Math.abs(previous.top-top)<0.5?previous:{left,top});
               }else setSelectedImageAction(null);
               const scene = {
@@ -560,7 +562,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
           </section>
         </div>
       )}
-      {imageExport && <div className="modal-shade"><section className="modal" role="dialog" aria-modal="true" aria-label="图像导出预览"><h2>图像已生成</h2><p>已请求下载；若浏览器未保存，可使用下方链接或右键保存预览图片。</p><img alt="导出的画布图像" src={imageExport.url} style={{width:'100%',maxHeight:'50vh',objectFit:'contain'}}/><p><a href={imageExport.url} download={imageExport.name}>保存 {imageExport.name}</a></p><button onClick={()=>setImageExport(null)}>关闭图像预览</button></section></div>}
+      {imageExport && <div className="modal-shade"><section className="modal" role="dialog" aria-modal="true" aria-label="图像导出预览"><h2>图片已准备</h2><p>{imageExport.savedPath?`原图已保存到：${imageExport.savedPath}`:'已请求下载；若浏览器未保存，可使用下方链接或右键保存预览图片。'} 棋盘格仅用于预览透明区域，不会写入文件。</p><img className="transparency-preview" alt="完整图片预览" src={imageExport.url} style={{width:'100%',maxHeight:'50vh',objectFit:'contain'}}/><p><a href={imageExport.url} download={imageExport.name}>保存 {imageExport.name}</a></p><button onClick={()=>setImageExport(null)}>关闭图像预览</button></section></div>}
       {backup && (
         <div className="modal-shade">
           <section

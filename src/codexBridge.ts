@@ -176,6 +176,23 @@ export async function createImageJob(
   return data as ImageJob;
 }
 
+export async function downloadOriginalImage(dataURL:string,filename:string) {
+  const result=await callTool('download_zhongxing_original_image',{dataURL,filename}) as {structuredContent?:{savedPath?:string}}|null;
+  if(!result)return null;
+  if(!result.structuredContent?.savedPath)throw new Error('插件未返回原图保存路径');
+  return result.structuredContent.savedPath;
+}
+export async function createImageActionJob(input: { kind: 'relayout' | 'remove-background'; sourceImageId: string; sourceWidth: number; sourceHeight: number; width: number; height: number; originalDataURL: string; prompt: string }) {
+  const result = await callTool('create_zhongxing_image_action_job', input);
+  if (!result) throw new Error('请在 Codex 内打开本机测试版画布后使用图片操作。');
+  return toolJob(result);
+}
+export async function retryImageJob(id: string) {
+  const result = await callTool('retry_zhongxing_image_job', { id });
+  if (!result) throw new Error('请在 Codex 内重试图片任务。');
+  return toolJob(result);
+}
+
 export async function getImageJob(id: string) {
   const result = await callTool('get_zhongxing_image_job', { id });
   if (result) return toolJob(result);

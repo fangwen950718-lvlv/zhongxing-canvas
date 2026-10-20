@@ -2,6 +2,7 @@ import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import { ZHONGXING_CONTEXT } from "./zhongxing-context.js";
 import packageInfo from '../package.json';
+import { presetIds } from './ruleLibraryState';
 
 const defaultRulePreset = "social-poster";
 const legacyRuleMap: Record<string, string> = {
@@ -43,6 +44,8 @@ export interface Project {
   rulePreset?: string;
   ruleLibraryId?: string;
   customRuleLibraries?: CustomRuleLibrary[];
+  deletedRuleLibraryIds?: string[];
+  commonRulesText?: string;
   /** V1.4 legacy fields, migrated to customRuleLibraries when loaded. */
   customKnowledgeName?: string;
   customKnowledge?: string;
@@ -158,9 +161,11 @@ export function parseProject(value: unknown): Project {
   }
   if (value.rulePreset !== undefined && (typeof value.rulePreset !== "string" || value.rulePreset.length > 100))
     throw new Error("知识规则类型损坏。");
+  if(value.commonRulesText !== undefined && (typeof value.commonRulesText!=='string'||value.commonRulesText.length>120000))throw new Error('通用底层规则损坏。');
   if (value.ruleLibraryId !== undefined && (typeof value.ruleLibraryId !== "string" || value.ruleLibraryId.length > 100))
     throw new Error("知识库选择记录损坏。");
-  if (value.customRuleLibraries !== undefined && (!Array.isArray(value.customRuleLibraries) || value.customRuleLibraries.length > 30 || value.customRuleLibraries.some((library: unknown) => !object(library) || typeof library.id !== "string" || !/^uploaded-[a-z0-9-]{1,80}$/.test(library.id) || typeof library.name !== "string" || !library.name.trim() || library.name.length > 200 || typeof library.content !== "string" || !library.content.trim() || library.content.length > 120000 || typeof library.createdAt !== "string" || !Number.isFinite(Date.parse(library.createdAt)))))
+  if (value.deletedRuleLibraryIds !== undefined && (!Array.isArray(value.deletedRuleLibraryIds) || value.deletedRuleLibraryIds.length > 5 || value.deletedRuleLibraryIds.some((id:unknown)=>typeof id!=='string'||!presetIds.includes(id)))) throw new Error('规则删除记录损坏。');
+  if (value.customRuleLibraries !== undefined && (!Array.isArray(value.customRuleLibraries) || value.customRuleLibraries.length > 30 || value.customRuleLibraries.some((library: unknown) => !object(library) || typeof library.id !== "string" || (!presetIds.includes(library.id)&&!/^uploaded-[a-z0-9-]{1,80}$/.test(library.id)) || typeof library.name !== "string" || !library.name.trim() || library.name.length > 200 || typeof library.content !== "string" || !library.content.trim() || library.content.length > 120000 || typeof library.createdAt !== "string" || !Number.isFinite(Date.parse(library.createdAt)))))
     throw new Error("自定义审美规则库损坏。");
   if (value.customKnowledgeName !== undefined && (typeof value.customKnowledgeName !== "string" || value.customKnowledgeName.length > 200))
     throw new Error("自定义知识文件名损坏。");
@@ -286,6 +291,8 @@ export function parseProject(value: unknown): Project {
     rulePreset: migratedPreset,
     ruleLibraryId,
     customRuleLibraries,
+    deletedRuleLibraryIds: value.deletedRuleLibraryIds || [],
+    commonRulesText: value.commonRulesText,
     customKnowledgeName: "",
     customKnowledge: "",
     brief: {

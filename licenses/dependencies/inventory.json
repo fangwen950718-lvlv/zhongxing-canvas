@@ -2235,6 +2235,14 @@
     ]
   },
   {
+    "package": "pngjs",
+    "version": "7.0.0",
+    "license": "MIT",
+    "notices": [
+      "pngjs--LICENSE"
+    ]
+  },
+  {
     "package": "points-on-curve",
     "version": "1.0.1",
     "license": "MIT",

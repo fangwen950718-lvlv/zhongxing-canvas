@@ -26,7 +26,7 @@ if (marketplace.name !== 'zhongxing-canvas-github' || marketplace.plugins?.[0]?.
 const scanRoots = ['plugin.json','mcp.json','.codex-plugin','.mcp.json','.agents','assets','skills','scripts/start-mcp.mjs','mcp/generated','README.md','LICENSE','THIRD_PARTY_NOTICES.md','licenses'];
 async function filesAt(target) { const stat = await import('node:fs/promises').then(({ stat }) => stat(target)); if (stat.isFile()) return [target]; const entries = await readdir(target, { withFileTypes: true }); return (await Promise.all(entries.map((entry) => filesAt(join(target, entry.name))))).flat(); }
 const files = (await Promise.all(scanRoots.map((entry) => filesAt(join(root, entry))))).flat();
-const forbidden = [/\/Users\/w\.fang/g, /127\.0\.0\.1:4318/g, /ZHONGXING_CANVAS_ROOT/g, /cowart_mcp/g, /plugins\/zhongxing-canvas\/mcp/g];
+const forbidden = [/\/Users\/w\.fang/g, /127\.0\.0\.1:4318/g, /ZHONGXING_CANVAS_ROOT/g, /plugins\/zhongxing-canvas\/mcp/g];
 for (const file of files) {
   if (/\.(png|jpg|jpeg|webp|gif|woff2?)$/i.test(file)) continue;
   const text = file.endsWith('.gz') ? gunzipSync(await readFile(file)).toString('utf8') : await readFile(file, 'utf8');

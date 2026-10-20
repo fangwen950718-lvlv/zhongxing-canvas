@@ -9,6 +9,7 @@ import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { createImageEditJob, sendCodexMessage } from './codexBridge';
 import type { ImageJob } from './ImageGenerator';
 import ReferenceImagePicker, { type ReferenceImageInput } from './ReferenceImagePicker';
+import { groupImageAnnotations } from './annotationGroups';
 
 type Point = { x: number; y: number };
 
@@ -100,8 +101,11 @@ export default function AnnotationEditor({
         zhongxingAnnotationNote: note.trim(),
       },
     }));
+    const grouped=groupImageAnnotations([...api.getSceneElements(),...created],image.id);
+    const imageGroup=grouped.find(e=>e.id===image.id)?.customData?.zhongxingAnnotationGroupId as string;
     api.updateScene({
-      elements: [...api.getSceneElements(), ...created],
+      elements: grouped,
+      appState:{selectedElementIds:Object.fromEntries(grouped.filter(e=>!e.isDeleted&&(e.id===image.id||e.customData?.zhongxingAnnotationTargetId===image.id)).map(e=>[e.id,true])),selectedGroupIds:{[imageGroup]:true}},
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
     setPending(null);

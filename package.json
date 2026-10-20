@@ -1,6 +1,6 @@
 {
   "name": "zhongxing-canvas",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -27,6 +27,7 @@
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.9",
     "fake-indexeddb": "6.2.2",
+    "pngjs": "7.0.0",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
     "vite": "7.1.7",

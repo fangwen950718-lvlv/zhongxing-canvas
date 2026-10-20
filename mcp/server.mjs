@@ -7,8 +7,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import packageInfo from '../package.json' with { type: 'json' };
 import { readWidgetAsset } from './runtime/widget-assets.mjs';
+import { downloadOriginalImage } from './runtime/download-image.mjs';
 import { loadProject, saveProject } from './runtime/projects.mjs';
-import { completeBriefJob, completeImageJob, createBriefJob, createImageEditJob, createImageJob, publicImageJob, readBriefJob, runtime, setBriefJobState, setImageJobState } from './runtime/job-store.mjs';
+import { completeBriefJob, completeImageJob, createBriefJob, createImageEditJob, createImageJob, createImageActionJob, retryImageJob, publicImageJob, readBriefJob, runtime, setBriefJobState, setImageJobState } from './runtime/job-store.mjs';
 
 const VERSION = packageInfo.version;
 const WIDGET_URI = `ui://zhongxing-canvas/${VERSION}/index.html`;
@@ -16,7 +17,26 @@ const WIDGET_HTML = join(dirname(fileURLToPath(import.meta.url)), 'zhongxing-can
 const ratioSchema = z.enum(['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3']);
 const referenceImagesSchema = z.array(z.object({ name: z.string().trim().min(1).max(160), dataURL: z.string().max(12_000_000) })).optional();
 const creativeOptionSchema = z.object({ title: z.string().trim().min(1).max(120), proposal: z.string().trim().min(1).max(30000), sections: z.array(z.object({ label: z.string().trim().min(1).max(40), content: z.string().trim().min(1).max(5000) })).min(4).max(8).optional(), imagePrompt: z.string().trim().min(1).max(30000) });
-const server = new McpServer({ name: 'zhongxing_canvas', version: VERSION }, { instructions: '当用户要求打开众行无限画布时，调用 open_zhongxing_independent_canvas。画布是插件内置 MCP App，不需要 localhost、Vite 或 Cowart。画布内任务会通过当前 Codex 对话调用本插件工具并回填。' });
+const server = new McpServer({ name: 'zhongxing_canvas', version: VERSION }, { instructions: '当用户要求打开众行无限画布时，调用 open_zhongxing_independent_canvas。画布是插件内置 MCP App，不需要本机网页服务或开发工程。画布内任务会通过当前 Codex 对话调用本插件工具并回填。' });
+
+registerAppTool(server, 'download_zhongxing_original_image', {
+  title: '下载原图', description: '将图片原始字节保存到本机下载文件夹，不覆盖已有同名文件。',
+  inputSchema: { dataURL:z.string().max(36_000_000), filename:z.string().min(1).max(200) },
+  annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false},
+  _meta:{ui:{visibility:['app']},'openai/widgetAccessible':true},
+}, async ({dataURL,filename})=>({content:[],structuredContent:await downloadOriginalImage(dataURL,filename)}));
+
+registerAppTool(server, 'create_zhongxing_image_action_job', {
+  title: '创建图片延展或去背任务', description: '保存原图与目标尺寸，新增结果且不覆盖原图。',
+  inputSchema: { kind: z.enum(['relayout', 'remove-background']), sourceImageId: z.string().min(1).max(200), sourceWidth: z.number().int().positive().max(8192), sourceHeight: z.number().int().positive().max(8192), width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192), prompt: z.string().trim().min(1).max(12000), originalDataURL: z.string().max(36_000_000) },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true },
+}, async input => ({ content: [], structuredContent: { job: await createImageActionJob(input) } }));
+registerAppTool(server, 'retry_zhongxing_image_job', {
+  title: '重试失败的图片任务', description: '保留原始输入，重置失败任务等待重发。', inputSchema: { id: z.string().uuid() },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true },
+}, async ({ id }) => ({ content: [], structuredContent: { job: await retryImageJob(id) } }));
 
 registerAppTool(server, 'read_zhongxing_widget_asset', {
   title: '读取画布内置资源', description: '仅供画布启动与字体加载使用，按固定大小分块读取插件内置资源。',
@@ -28,10 +48,10 @@ registerAppTool(server, 'read_zhongxing_widget_asset', {
 registerAppResource(server, 'zhongxing-canvas-widget', WIDGET_URI, {}, async () => ({ contents: [{ uri: WIDGET_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(WIDGET_HTML, 'utf8'), _meta: { ui: { prefersBorder: false, csp: { resourceDomains: ['data:', 'blob:'] } }, 'openai/widgetDescription': '众行无限画布：内置 Excalidraw、视觉方案、参考图、生图与标注修改。', 'openai/widgetPrefersBorder': false, 'openai/widgetCSP': { connect_domains: [], resource_domains: ['data:', 'blob:'] } } }] }));
 
 registerAppTool(server, 'open_zhongxing_independent_canvas', {
-  title: '打开众行无限画布', description: '打开插件内置的众行无限画布。不要调用 Cowart，也不要打开 localhost。', inputSchema: { title: z.string().trim().max(120).optional() },
+  title: '打开众行无限画布', description: '打开插件内置的众行无限画布。直接打开内置 MCP App。', inputSchema: { title: z.string().trim().max(120).optional() },
   outputSchema: { version: z.literal(VERSION), widget: z.literal('zhongxing-canvas'), title: z.string(), rendering: z.literal('mcp-app'), dataDirectory: z.string() },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  _meta: { ui: { resourceUri: WIDGET_URI, visibility: ['model', 'app'] }, 'ui/resourceUri': WIDGET_URI, 'openai/outputTemplate': WIDGET_URI, 'openai/widgetAccessible': true, 'openai/toolInvocation/invoking': '正在打开众行画布…', 'openai/toolInvocation/invoked': '众行画布已打开' },
+  _meta: { ui: { resourceUri: WIDGET_URI, visibility: ['model', 'app'] }, 'openai/ui': {entrypoints:[{type:'global'},{type:'thread'}]}, 'ui/resourceUri': WIDGET_URI, 'openai/outputTemplate': WIDGET_URI, 'openai/widgetAccessible': true, 'openai/toolInvocation/invoking': '正在打开众行画布…', 'openai/toolInvocation/invoked': '众行画布已打开' },
 }, async ({ title } = {}) => ({ content: [{ type: 'text', text: '已打开众行无限画布。' }], structuredContent: { version: VERSION, widget: 'zhongxing-canvas', title: title || '众行无限画布', rendering: 'mcp-app', dataDirectory: runtime }, _meta: { ui: { resourceUri: WIDGET_URI }, 'ui/resourceUri': WIDGET_URI, 'openai/outputTemplate': WIDGET_URI } }));
 
 registerAppTool(server, 'create_zhongxing_image_job', { title: '创建众行画布生图任务', description: '由众行画布创建本机生图任务。', inputSchema: { prompt: z.string().trim().min(1).max(12000), ratio: ratioSchema, referenceImages: referenceImagesSchema }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true } }, async (input) => ({ content: [], structuredContent: { job: await createImageJob(input) } }));

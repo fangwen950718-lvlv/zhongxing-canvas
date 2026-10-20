@@ -12,7 +12,8 @@ export interface ImageJob {
   dataURL?: string;
   mimeType?: string;
   message?: string;
-  kind?: 'generate' | 'edit';
+  kind?: 'generate' | 'edit' | 'relayout' | 'remove-background';
+  sourceImageId?: string;
   sourceWidth?: number;
   sourceHeight?: number;
   handoffQueued?: boolean;

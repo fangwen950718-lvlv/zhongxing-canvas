@@ -4,14 +4,17 @@
 
 `assets/zhongxing-logo.png` is the original 众行传播 logo supplied by the project owner and included at their explicit request. Brand and trademark rights remain with their respective owner; the code's MIT license does not grant trademark rights or a general license to reuse this logo.
 
+`assets/product-icon.png` is the product icon supplied by the project owner for the plugin listing and composer avatar. The same brand and trademark reservation applies.
+
 The distributed Widget bundles the following major open-source components:
 
 - Excalidraw 0.18.1 — MIT License, copyright Excalidraw contributors.
 - React and React DOM 19.1.1 — MIT License, copyright Meta Platforms, Inc. and affiliates.
 - Model Context Protocol SDK and MCP Apps SDK — MIT License.
+- pngjs 7.0.0 — MIT License (bundled PNG validation and proportional resampling).
 - TypeScript — Apache License 2.0 (development only).
 - Vite — MIT License (development/build only).
 - Fonts shipped by Excalidraw retain their original MIT, SIL Open Font License, or source notices.
 
-Full license texts and font notices are included in `licenses/`. The public release does not include Cowart code, Cowart runtime services, customer data, test images, private task records, or the original internal aesthetic-rule documents. The five built-in rule presets are independently written public baseline guidance; users can import private Markdown/TXT/JSON rule libraries locally.
+Full license texts and font notices are included in `licenses/`. The public release does not include customer data, test images, private task records, or the original internal aesthetic-rule documents. The five built-in rule presets are independently written public baseline guidance; users can import private Markdown/TXT/JSON rule libraries locally.
 
