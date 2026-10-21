@@ -29,7 +29,7 @@ test('original download preserves bytes, MIME and native file extension',async()
 test('action prompts lock content, alpha, target dimensions and near-image frame ratio',()=>{
   assert.match(actionPrompt('relayout',1600,900),/1600×900/);assert.match(actionPrompt('relayout',1600,900),/不新增、删减/);
   assert.match(actionPrompt('remove-background',800,800),/真实 alpha/);
-  assert.deepEqual(imageActionFrame({width:1600,height:900},{width:400,height:900}),{width:400,height:225});
+  assert.deepEqual(imageActionFrame({width:1600,height:900},{width:400,height:900}),{width:1600,height:900});
   assert.match(commandForImageJob({id:'test',kind:'relayout'} as any),/zhongxing-canvas-image-action/);
   for(const dims of [[0,1],[-1,4],[1.5,2],[9000,2],[8192,8192]])assert.throws(()=>validateDimensions(...dims),/尺寸/);
 });
@@ -75,10 +75,10 @@ test('invalid action input does not create a valid job',async()=>{
 });
 test('image actions sit above the image and clamp to viewport edges with zoom and rotation',()=>{
   const view={width:1000,height:700,scrollX:10,scrollY:20,zoom:{value:1}};
-  assert.deepEqual(imageActionsPosition({x:300,y:300,width:200,height:200},view),{left:240,top:266});
+  assert.deepEqual(imageActionsPosition({x:300,y:300,width:200,height:200},view),{left:200,top:266});
   const left=imageActionsPosition({x:-100,y:-100,width:80,height:80},view);assert.equal(left.left,12);assert.equal(left.top,12);
-  const right=imageActionsPosition({x:990,y:900,width:200,height:200},view);assert.equal(right.left,648);assert.equal(right.top,644);
-  const zoomed=imageActionsPosition({x:300,y:300,width:200,height:200}, {...view,zoom:{value:2}});assert.equal(zoomed.left,648);assert.equal(zoomed.top,586);
+  const right=imageActionsPosition({x:990,y:900,width:200,height:200},view);assert.equal(right.left,568);assert.equal(right.top,644);
+  const zoomed=imageActionsPosition({x:300,y:300,width:200,height:200}, {...view,zoom:{value:2}});assert.equal(zoomed.left,568);assert.equal(zoomed.top,586);
   const rotated=imageActionsPosition({x:300,y:300,width:200,height:100,angle:Math.PI/2},view);assert.equal(rotated.top,216);
 });
 test('repeated results find empty space without moving or hiding prior images',()=>{

@@ -3,8 +3,6 @@ import { createRoot } from "react-dom/client";
 import {
   Excalidraw,
   MainMenu,
-  exportToBlob,
-  exportToSvg,
   convertToExcalidrawElements,
   CaptureUpdateAction,
 } from "@excalidraw/excalidraw";
@@ -28,9 +26,13 @@ import CanvasToolbar from './CanvasToolbar';
 import ImageGenerator, { type ImageJob } from './ImageGenerator';
 import AnnotationEditor from './AnnotationEditor';
 import ImageActions from './ImageActions';
-import { commandForImageJob, imageActionFrame, nextImagePosition, imageActionsPosition } from './imageActionUtils';
+import { commandForImageJob, imageActionFrame, nextImagePosition, imageActionsPosition,imageJobLabel } from './imageActionUtils';
 import { groupExistingAnnotations, selectedAnnotationImage } from './annotationGroups';
-import { createBriefJob, getBriefJob, getImageJob, retryImageJob, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
+import {createSceneSignature} from './sceneSignature';
+import ImageSizeInfo from './ImageSizeInfo';
+import { createBriefJob, getBriefJob, getImageJob, retryImageJob, cancelImageJob, exportSavedProject, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
+import {projectBlobInWorker} from './projectExport';
+import {createSaveSchedule} from './saveSchedule';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { defaultRulePreset, rulePresets, type RuleLibrary } from './creativeRules';
 import RuleEditor from './RuleEditor';
@@ -75,13 +77,10 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 async function validateImages(p: Project) {
-  await Promise.all(
-    Object.values(p.scene.files).map(async (f) => {
-      const image = new Image();
-      image.src = f.dataURL;
-      await image.decode();
-    }),
-  );
+  // Validate one decoded bitmap at a time; retain all original file bytes.
+  for(const file of Object.values(p.scene.files)){
+    const image=new Image();try{image.src=file.dataURL;await image.decode();}finally{image.src='';}
+  }
   return {...p,scene:{...p.scene,elements:groupExistingAnnotations(p.scene.elements)}};
 }
 function App({ initial, loadError }: { initial: Project; loadError: string }) {
@@ -102,6 +101,9 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     input = useRef<HTMLInputElement>(null),
     lastScene = useRef("");
   const imageInput = useRef<HTMLInputElement>(null);
+  const sceneSignature=useRef(createSceneSignature());
+  const saveSchedule=useRef(createSaveSchedule());
+  const sizedImages=useRef(new Set(initial.scene.elements.filter(e=>e.type==='image').map(e=>e.id)));
   const [showRuleEditor,setShowRuleEditor]=useState(false);
   const [editorApi,setEditorApi]=useState<ExcalidrawImperativeAPI|null>(null);
   const [activeTool,setActiveTool]=useState('selection');
@@ -117,6 +119,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   const [jobStatus,setJobStatus]=useState('');
   const [retryJobId,setRetryJobId]=useState('');
   const [retryBusy,setRetryBusy]=useState(false);
+  const [activeTileJob,setActiveTileJob]=useState(''),[cancelBusy,setCancelBusy]=useState(false);
+  async function stopTiles(){setCancelBusy(true);try{const job=await cancelImageJob(activeTileJob);setActiveTileJob('');setRetryJobId('');setJobStatus(job.message||'任务已中止');}catch(e){setJobStatus(String(e));}finally{setCancelBusy(false);}}
   async function resendImageJob() {
     if(!retryJobId||retryBusy)return;
     setRetryBusy(true);
@@ -135,7 +139,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     const candidateX=near?near.x+near.width+60:existing.length?Math.max(...existing.map(e=>e.x+e.width))+60:-s.scrollX+s.width/(2*s.zoom.value)-width/2;
     const candidateY=near?.y??(-s.scrollY+s.height/(2*s.zoom.value)-height/2);
     const {x,y}=nextImagePosition({x:candidateX,y:candidateY,width,height},existing);
-    const elements=convertToExcalidrawElements([{type:'rectangle',x,y,width,height,roughness:0,strokeColor:'#909090',backgroundColor:'#f2f2f2',fillStyle:'solid',strokeStyle:'dashed',label:{text:`${job.kind==='relayout'?'延展尺寸':job.kind==='remove-background'?'去除背景':'AI 生图'} · 等待 Codex\n${job.width}×${job.height}\n${job.prompt.slice(0,70)}`,fontSize:16,fontFamily:2}}]);
+    const elements=convertToExcalidrawElements([{type:'rectangle',x,y,width,height,roughness:0,strokeColor:'#909090',backgroundColor:'#f2f2f2',fillStyle:'solid',strokeStyle:'dashed',label:{text:`${imageJobLabel(job.kind)} · 等待 Codex\n${job.width}×${job.height}\n${job.prompt.slice(0,70)}`,fontSize:16,fontFamily:2}}]);
     const decorated=elements.map(e=>({...e,customData:{zhongxingImageJobId:job.id}}));
     a.updateScene({elements:[...existing,...decorated],captureUpdate:CaptureUpdateAction.IMMEDIATELY});a.scrollToContent(decorated);setRetryJobId('');setJobStatus('任务已准备，正在发送到 Codex。');
   }
@@ -146,21 +150,25 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     try{for(const holder of holders){
       const id=holder.customData!.zhongxingImageJobId as string;
       const job:ImageJob=await getImageJob(id);
+      if(job.upscaleMode==='tiled')setActiveTileJob(previous=>['queued','running'].includes(job.status)?job.id:previous===job.id?'':previous);
       if(job.status==='failed')setRetryJobId(job.id);
       if(job.status==='running')setRetryJobId(previous=>previous===job.id?'':previous);
       if(job.status!=='completed'||!job.dataURL){const events=(job.progressEvents||[]).slice(-3).map(event=>`• ${event.text}`).join('\n');setJobStatus(job.status==='failed'?`生图未完成：${job.message||'请在 Codex 中查看原因'}`:`${typeof job.progress==="number"?`${job.progress}% · `:""}${job.message||'等待 Codex 开始处理…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);continue;}
       const img=new Image();img.src=job.dataURL;await img.decode();
       // Re-check after asynchronous work: never insert into a switched project or deleted frame.
       const current=a.getSceneElements();const target=current.find(e=>e.id===holder.id);if(!target)continue;
-      const ratio=Math.min(target.width/img.width,target.height/img.height);const w=img.width*ratio,h=img.height*ratio;
+      const w=img.naturalWidth,h=img.naturalHeight;
+      img.src='';
       const fileId=job.id as BinaryFileData['id'];a.addFiles([{id:fileId,mimeType:job.mimeType as BinaryFileData['mimeType'],dataURL:job.dataURL as BinaryFileData['dataURL'],created:Date.now()}]);
-      const image=convertToExcalidrawElements([{type:'image',fileId,x:target.x+(target.width-w)/2,y:target.y+(target.height-h)/2,width:w,height:h,status:'saved',customData:{zhongxingCompletedJobId:job.id,prompt:job.prompt,ratio:job.ratio}}]);
+      const placement=nextImagePosition({x:target.x,y:target.y,width:w,height:h},current.filter(e=>e.customData?.zhongxingImageJobId!==job.id));
+      const image=convertToExcalidrawElements([{type:'image',fileId,...placement,width:w,height:h,status:'saved',customData:{zhongxingCompletedJobId:job.id,prompt:job.prompt,ratio:job.ratio,...(job.processing?{zhongxingHdProcessing:job.processing}:{})}}]);
       update({...live.current,imageJobReceipts:[...(live.current.imageJobReceipts||[]),job.id]});
-      a.updateScene({elements:[...current.filter(e=>e.customData?.zhongxingImageJobId!==job.id),...image],captureUpdate:CaptureUpdateAction.IMMEDIATELY});setRetryJobId(previous=>previous===job.id?'':previous);setJobStatus(job.kind==='relayout'?'延展图片已放回画布，请核对文字与细节。':job.kind==='remove-background'?'透明 PNG 已放回画布，原图已保留。':'生成图片已放回画布，正在本地保存。');
+      a.updateScene({elements:[...current.filter(e=>e.customData?.zhongxingImageJobId!==job.id),...image],captureUpdate:CaptureUpdateAction.IMMEDIATELY});setRetryJobId(previous=>previous===job.id?'':previous);setJobStatus(job.upscaleMode==='whole-resample'?`${job.message}。原图保留，请核对细节。`:job.kind==='upscale'?'高清重绘已放回画布，原图保留；请核对文字与细节。':job.kind==='relayout'?'延展图片已放回画布，请核对文字与细节。':job.kind==='remove-background'?'透明 PNG 已放回画布，原图已保留。':'生成图片已放回画布，正在本地保存。');
     }}catch{setJobStatus('暂未取得生成结果，本地任务仍保留；请确认服务运行后重试。');}finally{polling.current=false;}
   },2000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{if(!briefJobId)return;const timer=setInterval(async()=>{try{const job=await getBriefJob(briefJobId);const options=job.options?.length?job.options:(job.proposal&&job.imagePrompt?[{title:'方案',proposal:job.proposal,imagePrompt:job.imagePrompt}]:[]);if(job.status==='completed'&&options.length){update({...live.current,aiOptions:options,aiSelectedOption:0,aiProposal:options[0].proposal,aiImagePrompt:options[0].imagePrompt});setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(options.length===3?'三组方案与提示词已生成，请选择一个方向。':'方案与 demo 级提示词已生成，可以直接生图。');}else if(job.status==='failed'){setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(`方案生成失败：${job.message||'请在 Codex 中查看原因'}`);}else{const events=(job.progressEvents||[]).slice(-2).map(event=>`• ${event.text}`).join('\n');setBriefProgress(`${job.progress||0}% · ${job.message||'Codex 正在整理视觉方案…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);}}catch{/* 保留任务并继续轮询 */}},1800);return()=>clearInterval(timer);},[briefJobId]);
-  const [backup, setBackup] = useState("");
+  const [projectExport,setProjectExport]=useState<{busy:boolean;message:string;path?:string;url?:string;name?:string;bytes?:number}|null>(null);
+  const exporting=useRef(false);
   const [imageExport, setImageExport] = useState<{url:string;name:string;savedPath?:string}|null>(null);
   useEffect(() => () => { if(imageExport) URL.revokeObjectURL(imageExport.url); }, [imageExport]);
   async function importImage(file?: File) {
@@ -191,9 +199,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       const id = crypto.randomUUID() as BinaryFileData["id"];
       const a = api.current;
       const state = a.getAppState();
-      const scale = Math.min(1, 500 / img.width, 500 / img.height);
-      const width = img.width * scale,
-        height = img.height * scale;
+      const width = img.naturalWidth,
+        height = img.naturalHeight;
       const element = convertToExcalidrawElements([
         {
           type: "image",
@@ -225,6 +232,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     }
   }
   const update = (p: Project) => {
+    saveSchedule.current.changed();
     live.current = p;
     dirty.current = true;
     revision.current++;
@@ -241,7 +249,9 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
         dirty.current = false;
         setStatus(`已保存到${saveLocation()}`);
       }
+      saveSchedule.current.success(rev!==revision.current);
     } catch {
+      saveSchedule.current.failed();
       setStatus("保存失败 · 请导出备份");
       setNotice(
         "浏览器存储失败。当前内容仍在页面中，请立即导出项目备份；检查磁盘空间及浏览器存储权限。",
@@ -251,7 +261,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
     }
   }
   useEffect(() => {
-    const timer = setInterval(() => void flush(), 650);
+    const timer = setInterval(() => {if(saveSchedule.current.ready())void flush();}, 650);
     const hide = () => {
       if (document.hidden) void flush();
     };
@@ -268,17 +278,25 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       window.removeEventListener("beforeunload", leave);
     };
   }, []);
-  function exportProject() {
-    const text = JSON.stringify(
-      { ...live.current, savedAt: new Date().toISOString() },
-      null,
-      2,
-    );
-    download(
-      new Blob([text], { type: "application/json" }),
-      `${live.current.name.replace(/[\\/:*?"<>|]/g, "_") || "众行项目"}.zhongxing.json`,
-    );
-    setBackup(text);
+  async function exportProject() {
+    if(exporting.current)return;exporting.current=true;
+    setProjectExport({busy:true,message:'1 / 2 · 正在确认最新画布已保存…'});
+    try{
+      await new Promise(resolve=>setTimeout(resolve,0));
+      const deadline=Date.now()+60000;
+      while(saving.current){if(Date.now()>deadline)throw new Error('自动保存仍未完成，请稍后再试；当前画布未修改');await new Promise(resolve=>setTimeout(resolve,150));}
+      if(!paused.current)await flush();
+      const name=live.current.name;
+      setProjectExport({busy:true,message:'2 / 2 · 正在写入完整项目文件，请勿关闭画布…'});
+      let saved=null;
+      if(!dirty.current&&!saving.current&&!paused.current)try{saved=await exportSavedProject(name);}catch(e){setProjectExport({busy:true,message:`本机直接保存失败，正在准备当前内容的浏览器备份：${e instanceof Error?e.message:String(e)}`});}
+      if(saved){setProjectExport({busy:false,message:'导出完成 · 文件已实际保存到本机',path:saved.savedPath,bytes:saved.bytes});return;}
+      const blob=await projectBlobInWorker({...live.current,savedAt:new Date().toISOString()});
+      if(blob.size>100*1024*1024)throw new Error('项目超过 100MB 导入上限，请分项目整理后导出');
+      const url=URL.createObjectURL(blob),filename=`${name.replace(/[\\/:*?"<>|]/g,'_')||'众行项目'}.zhongxing.json`;
+      setProjectExport({busy:false,message:'项目文件已准备。请点击下方链接保存；网页无法确认浏览器是否已写入磁盘。',url,name:filename,bytes:blob.size});
+    }catch(e){setProjectExport({busy:false,message:`导出未完成：${e instanceof Error?e.message:String(e)}。画布内容仍保留，可重试。`});}
+    finally{exporting.current=false;}
   }
   async function importProject(file?: File) {
     if (!file) return;
@@ -298,6 +316,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   }
   function replace() {
     if (!pending) return;
+    sizedImages.current=new Set(pending.scene.elements.filter(e=>e.type==='image').map(e=>e.id));
     lastScene.current = "";
     update(pending);
     setEpoch((x) => x + 1);
@@ -318,28 +337,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       if(!sent&&!job.handoffQueued&&!job.automationStarted){setBriefJobId('');setBriefBusy(false);setNotice('当前页面不能调用 Codex。请从 Codex 插件中重新打开众行画布后重试。');}
     }catch(error){setBriefBusy(false);setNotice(`方案任务创建失败：${error instanceof Error?error.message:'请重试'}`);}
   }
-  async function exportImage(type: "png" | "svg") {
-    try {
-      if (!api.current) return;
-      const opts = {
-        elements: api.current.getSceneElements(),
-        appState: { ...api.current.getAppState(), exportBackground: true },
-        files: api.current.getFiles(),
-      };
-      if (!opts.elements.length) throw new Error("请先在画布中添加内容。");
-      const blob =
-        type === "png"
-          ? await exportToBlob({ ...opts, mimeType: "image/png" })
-          : new Blob([(await exportToSvg(opts)).outerHTML], {
-              type: "image/svg+xml",
-            });
-      download(blob, `${live.current.name}.${type}`);
-      setImageExport({url:URL.createObjectURL(blob),name:`${live.current.name}.${type}`});
-    } catch (e) {
-      setNotice(`导出失败：${e instanceof Error ? e.message : "请重试"}`);
-    }
-  }
   const annotationImage=annotationImageId&&api.current?.getSceneElements().find(element=>element.id===annotationImageId&&element.type==='image');
+  const actionImage=selectedImageId&&editorApi?.getSceneElements().find(e=>e.id===selectedImageId&&!e.isDeleted&&e.type==='image');
   const creativeOptions=project.aiOptions?.length?project.aiOptions:(project.aiProposal&&project.aiImagePrompt?[{title:'方案',proposal:project.aiProposal,imagePrompt:project.aiImagePrompt}]:[]);
   const selectedOption=creativeOptions[Math.min(project.aiSelectedOption||0,creativeOptions.length-1)];
   const selectedLibrary=resolveRuleLibrary(project);
@@ -353,7 +352,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   return (
     <div className="app">
       {showImageGenerator&&<ImageGenerator initialPrompt={imageGeneratorPrompt} onClose={()=>setShowImageGenerator(false)} onCreated={placeImageJob}/>} 
-      {jobStatus&&<div className="job-status" role="status">{jobStatus}{retryJobId&&<button disabled={retryBusy} onClick={()=>void resendImageJob()}>{retryBusy?'正在重发…':'重新发送 / 重试'}</button>}<button onClick={()=>setJobStatus('')}>收起</button></div>}
+      {jobStatus&&<div className="job-status" role="status">{jobStatus}{activeTileJob&&<button disabled={cancelBusy} onClick={()=>void stopTiles()}>{cancelBusy?'正在中止…':'中止后续分块'}</button>}{retryJobId&&<button disabled={retryBusy} onClick={()=>void resendImageJob()}>{retryBusy?'正在重发…':'重新发送 / 重试'}</button>}<button onClick={()=>setJobStatus('')}>收起</button></div>}
       <header>
         <div className="brand">
           <img className="brand-logo" src={brandLogo} alt="众行传播" />
@@ -375,9 +374,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
         <span className="version">{BUILD}</span>
         <nav>
           <button onClick={() => input.current?.click()}>导入项目</button>
-          <button onClick={exportProject}>导出项目</button>
-          <button onClick={() => void exportImage("png")}>PNG</button>
-          <button onClick={() => void exportImage("svg")}>SVG</button>
+          <button disabled={projectExport?.busy} onClick={()=>void exportProject()}>导出项目</button>
         </nav>
         <input
           hidden
@@ -479,7 +476,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
         </aside>
         <main>
           <CanvasToolbar api={editorApi} activeTool={activeTool} onImage={()=>imageInput.current?.click()} onGenerate={()=>{setImageGeneratorPrompt('');setShowImageGenerator(true);}}/>
-          {selectedImageId&&selectedImageAction&&!annotationImageId&&editorApi&&<ImageActions key={selectedImageId} api={editorApi} image={editorApi.getSceneElements().find(e=>e.id===selectedImageId)!} position={selectedImageAction} projectName={project.name} onAnnotate={()=>setAnnotationImageId(selectedImageId)} onCreated={placeImageJob} onStatus={setJobStatus} onRetryNeeded={setRetryJobId} onDownload={(blob,name,savedPath)=>{if(!savedPath)download(blob,name);setImageExport({url:URL.createObjectURL(blob),name,savedPath});}}/>}
+          {actionImage&&editorApi&&<ImageSizeInfo api={editorApi} image={actionImage}/>}
+          {actionImage&&selectedImageAction&&!annotationImageId&&editorApi&&<ImageActions key={selectedImageId} api={editorApi} image={actionImage} position={selectedImageAction} projectName={project.name} onAnnotate={()=>setAnnotationImageId(selectedImageId)} onCreated={placeImageJob} onStatus={setJobStatus} onRetryNeeded={setRetryJobId} onDownload={(blob,name,savedPath)=>{if(!savedPath)download(blob,name);setImageExport({url:URL.createObjectURL(blob),name,savedPath});}}/>}
           <Excalidraw
             key={epoch}
             excalidrawAPI={(instance) => {
@@ -503,6 +501,18 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
               tools: { image: true },
             }}
             onChange={(elements, appState, files) => {
+              // New paste/drop images use source pixels too. Existing project
+              // elements and later user resizing are deliberately untouched.
+              for(const element of elements)if(element.type==='image'&&!element.isDeleted&&element.fileId&&!sizedImages.current.has(element.id)&&files[element.fileId]){
+                sizedImages.current.add(element.id);
+                const a=api.current,file=files[element.fileId],img=new Image();img.src=file.dataURL;
+                void img.decode().then(()=>{
+                  if(!a||api.current!==a)return;
+                  const current=a.getSceneElements(),found=current.find(e=>e.id===element.id);
+                  if(!found||found.width!==element.width||found.height!==element.height||found.width===img.naturalWidth&&found.height===img.naturalHeight)return;
+                  a.updateScene({elements:current.map(e=>e.id===found.id?{...e,width:img.naturalWidth,height:img.naturalHeight,version:e.version+1,versionNonce:Math.floor(Math.random()*2**31),updated:Date.now()}:e),captureUpdate:CaptureUpdateAction.IMMEDIATELY});
+                }).catch(()=>{/* invalid source remains recoverable through import/export */}).finally(()=>{img.src='';});
+              }
               setActiveTool(appState.activeTool.type);
               const selected=selectedAnnotationImage(elements,appState.selectedElementIds);
               setSelectedImageId(selected?.id||'');
@@ -515,7 +525,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
                 appState: cleanAppState(appState),
                 files,
               };
-              const signature = JSON.stringify(scene);
+              const signature = sceneSignature.current(elements,scene.appState,files);
               if (signature !== lastScene.current) {
                 lastScene.current = signature;
                 update({ ...live.current, scene });
@@ -563,7 +573,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
         </div>
       )}
       {imageExport && <div className="modal-shade"><section className="modal" role="dialog" aria-modal="true" aria-label="图像导出预览"><h2>图片已准备</h2><p>{imageExport.savedPath?`原图已保存到：${imageExport.savedPath}`:'已请求下载；若浏览器未保存，可使用下方链接或右键保存预览图片。'} 棋盘格仅用于预览透明区域，不会写入文件。</p><img className="transparency-preview" alt="完整图片预览" src={imageExport.url} style={{width:'100%',maxHeight:'50vh',objectFit:'contain'}}/><p><a href={imageExport.url} download={imageExport.name}>保存 {imageExport.name}</a></p><button onClick={()=>setImageExport(null)}>关闭图像预览</button></section></div>}
-      {backup && (
+      {projectExport && (
         <div className="modal-shade">
           <section
             className="modal"
@@ -571,20 +581,12 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
             aria-modal="true"
             aria-label="项目备份"
           >
-            <h2>项目备份已准备</h2>
-            <p>
-              已请求浏览器下载。若没有下载文件，可选中下面的完整
-              JSON，复制并另存为 UTF-8 的 .zhongxing.json 文件。包含图片数据。
-            </p>
-            <textarea
-              aria-label="完整项目 JSON"
-              readOnly
-              value={backup}
-              rows={8}
-              style={{ width: "100%" }}
-              onFocus={(e) => e.target.select()}
-            />
-            <button onClick={() => setBackup("")}>完成备份预览</button>
+            <h2>导出项目</h2><p role="status">{projectExport.message}</p>
+            {projectExport.busy&&<progress aria-label="项目导出处理中"/>}
+            {projectExport.path&&<p style={{overflowWrap:'anywhere'}}>{projectExport.path}</p>}
+            {typeof projectExport.bytes==='number'&&<p>{(projectExport.bytes/1024/1024).toFixed(2)} MB · 包含画布图片、批注、方案与规则，可通过“导入项目”恢复。</p>}
+            {projectExport.url&&<p><a href={projectExport.url} download={projectExport.name}>保存 {projectExport.name}</a></p>}
+            <button disabled={projectExport.busy} onClick={()=>{if(projectExport.url){const url=projectExport.url;setTimeout(()=>URL.revokeObjectURL(url),60000);}setProjectExport(null);}}>关闭</button>
           </section>
         </div>
       )}

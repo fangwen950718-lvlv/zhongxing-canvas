@@ -182,7 +182,8 @@ export async function downloadOriginalImage(dataURL:string,filename:string) {
   if(!result.structuredContent?.savedPath)throw new Error('插件未返回原图保存路径');
   return result.structuredContent.savedPath;
 }
-export async function createImageActionJob(input: { kind: 'relayout' | 'remove-background'; sourceImageId: string; sourceWidth: number; sourceHeight: number; width: number; height: number; originalDataURL: string; prompt: string }) {
+export async function exportSavedProject(name:string){const result=await callTool('export_zhongxing_project',{name}) as {structuredContent?:{savedPath:string;bytes:number}}|null;if(!result)return null;if(!result.structuredContent?.savedPath)throw new Error('导出工具未返回文件保存路径，请更新本机插件后重试');return result.structuredContent;}
+export async function createImageActionJob(input: { kind: 'relayout' | 'remove-background' | 'upscale'; upscaleMode?:'tiled'|'whole-resample'; sourceImageId: string; sourceWidth: number; sourceHeight: number; width: number; height: number; originalDataURL: string; prompt: string }) {
   const result = await callTool('create_zhongxing_image_action_job', input);
   if (!result) throw new Error('请在 Codex 内打开本机测试版画布后使用图片操作。');
   return toolJob(result);
@@ -192,6 +193,7 @@ export async function retryImageJob(id: string) {
   if (!result) throw new Error('请在 Codex 内重试图片任务。');
   return toolJob(result);
 }
+export async function cancelImageJob(id:string){const result=await callTool('cancel_zhongxing_image_job',{id});if(!result)throw new Error('请在 Codex 中中止任务');return toolJob(result);}
 
 export async function getImageJob(id: string) {
   const result = await callTool('get_zhongxing_image_job', { id });

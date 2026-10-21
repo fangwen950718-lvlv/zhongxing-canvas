@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "zhongxing-canvas",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "众行无限画布：本地优先的视觉方案、画布编辑、生图与标注修改工作流。",
   "author": {
     "name": "众行"

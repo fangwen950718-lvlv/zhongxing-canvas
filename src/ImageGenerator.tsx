@@ -12,9 +12,11 @@ export interface ImageJob {
   dataURL?: string;
   mimeType?: string;
   message?: string;
-  kind?: 'generate' | 'edit' | 'relayout' | 'remove-background';
+  kind?: 'generate' | 'edit' | 'relayout' | 'remove-background' | 'upscale';
   sourceImageId?: string;
   sourceWidth?: number;
+  upscaleMode?: 'tiled'|'whole-resample';
+  processing?: {method:string;nativeWidth:number;nativeHeight:number;targetWidth:number;targetHeight:number;nativeImageName:string};
   sourceHeight?: number;
   handoffQueued?: boolean;
   automationStarted?: boolean;

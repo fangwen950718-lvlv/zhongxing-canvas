@@ -8,7 +8,8 @@ import { z } from 'zod';
 import packageInfo from '../package.json' with { type: 'json' };
 import { readWidgetAsset } from './runtime/widget-assets.mjs';
 import { downloadOriginalImage } from './runtime/download-image.mjs';
-import { loadProject, saveProject } from './runtime/projects.mjs';
+import {startUpscaleTile,completeUpscaleTile,finishUpscaleTiles,cancelImageJob} from './runtime/job-store.mjs';
+import { loadProject, saveProject,exportSavedProject } from './runtime/projects.mjs';
 import { completeBriefJob, completeImageJob, createBriefJob, createImageEditJob, createImageJob, createImageActionJob, retryImageJob, publicImageJob, readBriefJob, runtime, setBriefJobState, setImageJobState } from './runtime/job-store.mjs';
 
 const VERSION = packageInfo.version;
@@ -27,8 +28,8 @@ registerAppTool(server, 'download_zhongxing_original_image', {
 }, async ({dataURL,filename})=>({content:[],structuredContent:await downloadOriginalImage(dataURL,filename)}));
 
 registerAppTool(server, 'create_zhongxing_image_action_job', {
-  title: '创建图片延展或去背任务', description: '保存原图与目标尺寸，新增结果且不覆盖原图。',
-  inputSchema: { kind: z.enum(['relayout', 'remove-background']), sourceImageId: z.string().min(1).max(200), sourceWidth: z.number().int().positive().max(8192), sourceHeight: z.number().int().positive().max(8192), width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192), prompt: z.string().trim().min(1).max(12000), originalDataURL: z.string().max(36_000_000) },
+  title: '创建图片操作任务', description: '延展、去背或三稿约束智能高清，保存原图与目标尺寸，新增结果且不覆盖原图。',
+  inputSchema: { kind: z.enum(['relayout', 'remove-background','upscale']), upscaleMode:z.enum(['tiled','whole-resample']).optional(), sourceImageId: z.string().min(1).max(200), sourceWidth: z.number().int().positive().max(8192), sourceHeight: z.number().int().positive().max(8192), width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192), prompt: z.string().trim().min(1).max(12000), originalDataURL: z.string().max(36_000_000) },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true },
 }, async input => ({ content: [], structuredContent: { job: await createImageActionJob(input) } }));
@@ -78,5 +79,11 @@ registerAppTool(server, 'save_zhongxing_project', {
   _meta: { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true },
 }, async ({ projectJSON }) => { await saveProject(projectJSON); return { content: [], structuredContent: { saved: true } }; });
 
+const tileAnnotations={readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false};
+registerAppTool(server,'export_zhongxing_project',{title:'导出已保存众行项目',description:'在画布确认保存完成后，直接复制完整项目到下载文件夹；不通过浏览器下载，不覆盖同名项目。',inputSchema:{name:z.string().min(1).max(200)},annotations:tileAnnotations,_meta:{ui:{visibility:['app']},'openai/widgetAccessible':true}},async({name})=>({content:[],structuredContent:await exportSavedProject(name)}));
+registerAppTool(server,'start_zhongxing_upscale_tile',{title:'开始高清分块',description:'取得一个未完成区域的裁切、三稿参考和生图要求；每块最多两次，全任务额外重试最多两次。',inputSchema:{id:z.string().uuid(),index:z.number().int().min(0).max(15)},annotations:tileAnnotations,_meta:{ui:{visibility:['model']}}},async({id,index})=>({content:[],structuredContent:{tile:await startUpscaleTile(id,index)}}));
+registerAppTool(server,'complete_zhongxing_upscale_tile',{title:'回填高清分块',description:'校验真实生成的局部 PNG，保留已完成区域。不是最终整图回填。',inputSchema:{id:z.string().uuid(),index:z.number().int().min(0).max(15),token:z.string().uuid(),file:z.string().min(1).max(4096)},annotations:tileAnnotations,_meta:{ui:{visibility:['model']}}},async({id,index,token,file})=>({content:[],structuredContent:{job:await completeUpscaleTile(id,index,token,file)}}));
+registerAppTool(server,'finish_zhongxing_upscale_tiles',{title:'拼接高清分块',description:'仅在所有分块完成后重叠混合并回填目标像素整图，不补画或插值未完成区域。',inputSchema:{id:z.string().uuid()},annotations:tileAnnotations,_meta:{ui:{visibility:['model']}}},async({id})=>({content:[],structuredContent:{job:await finishUpscaleTiles(id)}}));
+registerAppTool(server,'cancel_zhongxing_image_job',{title:'中止分块高清',description:'停止后续分块与回填，保留原图及已完成分块；正在运行的模型调用可能仍会消耗额度。',inputSchema:{id:z.string().uuid()},annotations:tileAnnotations,_meta:{ui:{visibility:['app','model']},'openai/widgetAccessible':true}},async({id})=>({content:[],structuredContent:{job:await cancelImageJob(id)}}));
 await server.connect(new StdioServerTransport());
 

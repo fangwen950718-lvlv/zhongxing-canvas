@@ -7,6 +7,7 @@ import { resolve, join } from 'node:path';
 import { build } from 'esbuild';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {PNG} from 'pngjs';
 
 const root = resolve(process.argv[2] || 'release/zhongxing-canvas');
 const dataDir = process.env.ZHONGXING_TEST_DATA_DIR || await mkdtemp(join(tmpdir(), 'canvas-widget-host-'));
@@ -36,7 +37,7 @@ const bridgeJS = bundled.outputFiles[0].text;
 const http = createServer(async (req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
-    if (req.method === 'GET' && req.url === '/') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<!doctype html><html><body style="margin:0"><iframe title="众行 MCP App 测试" style="border:0;width:100vw;height:100vh" sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"></iframe><script type="module" src="/host.js"></script></body></html>'); return; }
+    if (req.method === 'GET' && req.url === '/') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<!doctype html><html><body style="margin:0;overflow:hidden"><iframe title="众行 MCP App 测试" style="display:block;border:0;width:100%;height:100dvh" sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"></iframe><script type="module" src="/host.js"></script></body></html>'); return; }
     if (req.method === 'GET' && req.url === '/host.js') { res.setHeader('Content-Type', 'application/javascript'); res.end(bridgeJS); return; }
     if (req.method === 'GET' && req.url === '/widget') {
       res.setHeader('Content-Type', 'text/html');
@@ -56,12 +57,28 @@ const http = createServer(async (req, res) => {
       if (text.includes('zhongxing-canvas-brief')) {
         await client.callTool({name:'complete_zhongxing_brief_job',arguments:{id,options:[1,2,3].map(n=>({title:'测试方向 '+n,proposal:'确定性测试方案 '+n,sections:[{label:'创意主轴',content:'测试主体'},{label:'视觉主体',content:'单一物体'},{label:'构图层级',content:'主体居中'},{label:'风险提示',content:'仅为验收夹具'}],imagePrompt:'仅用于验收的测试图 '+n}))}});
       } else {
+        const loaded=await client.callTool({name:'get_zhongxing_image_job',arguments:{id}});
+        if(loaded.structuredContent.job.upscaleMode==='tiled'){
+          // Explicit deterministic UI fixture, not evidence of AI reconstruction.
+          for(const tile of loaded.structuredContent.job.tiles){
+            if(tile.status==='completed')continue;
+            const started=await client.callTool({name:'start_zhongxing_upscale_tile',arguments:{id,index:tile.index}});
+            if(started.isError)throw new Error(JSON.stringify(started));
+            const input=started.structuredContent.tile,crop=PNG.sync.read(await readFile(input.cropPath)),mock=new PNG({width:992,height:992});
+            for(let y=0;y<992;y++)for(let x=0;x<992;x++){const at=(Math.floor(y*crop.height/992)*crop.width+Math.floor(x*crop.width/992))*4;crop.data.copy(mock.data,(y*992+x)*4,at,at+4);}
+            const file=join(dataDir,`mock-tile-${tile.index}.png`);await writeFile(file,PNG.sync.write(mock));
+            const result=await client.callTool({name:'complete_zhongxing_upscale_tile',arguments:{id,index:tile.index,token:input.token,file}});if(result.isError)throw new Error(JSON.stringify(result));
+          }
+          const result=await client.callTool({name:'finish_zhongxing_upscale_tiles',arguments:{id}});if(result.isError)throw new Error(JSON.stringify(result));
+          events.push({type:'mock-tiles-completed',id});res.end('{}');return;
+        }
         await client.callTool({name:'start_zhongxing_image_job',arguments:{id}});
         let result=fixture;
         if(process.env.ZHONGXING_TEST_RESULTS_DIR) {
           const response=await client.callTool({name:'get_zhongxing_image_job',arguments:{id}});
           const job=response.structuredContent.job;
           if(job.kind==='remove-background') result=join(process.env.ZHONGXING_TEST_RESULTS_DIR,'cutout.png');
+          if(job.kind==='upscale') result=join(process.env.ZHONGXING_TEST_RESULTS_DIR,job.upscaleMode==='whole-resample'?'hd-native.png':'hd.png');
           if(job.kind==='relayout') result=join(process.env.ZHONGXING_TEST_RESULTS_DIR,job.width>job.height?'wide.png':'portrait.png');
         }
         const completed=await client.callTool({name:'complete_zhongxing_image_job',arguments:{id,file:result}});

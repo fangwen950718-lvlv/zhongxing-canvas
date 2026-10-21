@@ -1,5 +1,6 @@
 import type { CustomRuleLibrary, Project } from './project';
 import { ZHONGXING_CONTEXT } from './zhongxing-context.js';
+import {legacyPortraitRules} from './legacyPortraitRules';
 
 export function commonRules(project: Pick<Project,'commonRulesText'>) {return project.commonRulesText ?? ZHONGXING_CONTEXT;}
 export function effectiveRules(project: Pick<Project,'commonRulesText'>, library: {label:string;rules:string}) {
@@ -9,7 +10,7 @@ export function effectiveRules(project: Pick<Project,'commonRulesText'>, library
 export const presetIds = ['social-poster','character-poster','3d-ip-poster','product-key-visual','resource-slot-material'];
 export function availableRules(project: Pick<Project,'customRuleLibraries'|'deletedRuleLibraryIds'>, defaults: CustomRuleLibrary[]) {
   const overrides = new Map((project.customRuleLibraries || []).map(rule => [rule.id,rule]));
-  return [...defaults.map(rule => overrides.get(rule.id) || rule), ...(project.customRuleLibraries || []).filter(rule => !defaults.some(item => item.id === rule.id))]
+  return [...defaults.map(rule => {const saved=overrides.get(rule.id);return saved&&!(rule.id==='character-poster'&&saved.name===rule.name&&saved.content.trim()===legacyPortraitRules)?saved:rule;}), ...(project.customRuleLibraries || []).filter(rule => !defaults.some(item => item.id === rule.id))]
     .filter(rule => !project.deletedRuleLibraryIds?.includes(rule.id));
 }
 export function applyRules(project: Project, libraries: CustomRuleLibrary[], defaults: CustomRuleLibrary[]): Project {

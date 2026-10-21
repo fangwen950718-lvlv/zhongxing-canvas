@@ -1,4 +1,5 @@
 import { PNG } from 'pngjs';
+import {resampleLanczos} from './resample.mjs';
 
 const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 export function validateDimensions(width, height) {
@@ -13,11 +14,16 @@ export function decodePNG(bytes) {
 }
 export function normalizeImageOutput(job, bytes) {
   const input = decodePNG(bytes);
-  if (job.kind === 'relayout') {
+  if (job.kind === 'relayout'||job.kind==='upscale') {
     if (Math.abs(input.width * job.height - input.height * job.width) > Math.max(job.width, job.height)) {
       throw new Error(`生成比例不符：得到 ${input.width}×${input.height}，需要 ${job.width}×${job.height}，请按目标比例重新生成`);
     }
   }
+  if(job.kind==='upscale'&&job.upscaleMode==='whole-resample'){
+    if(Math.max(input.width,input.height)<Math.min(768,Math.max(job.width,job.height)))throw new Error('整图重绘输出过小，请提供模型原生完整图片，不能回填缩略图');
+    return input.width===job.width&&input.height===job.height?bytes:resampleLanczos(input,job.width,job.height);
+  }
+  if(job.kind==='upscale'&&(input.width<job.width||input.height<job.height))throw new Error(`高清重绘分辨率不足：得到 ${input.width}×${input.height}，需要 ${job.width}×${job.height}；不会用插值放大冒充完成。`);
   if (job.kind === 'remove-background') {
     let transparent = false, foreground = false;
     for (let i = 3; i < input.data.length; i += 4) {

@@ -1,4 +1,6 @@
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, writeFile, stat } from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {homedir} from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getUserDataRoot } from './data-dir.mjs';
@@ -23,4 +25,18 @@ export async function saveProject(text) {
   try { await copyFile(file, `${file}.bak`); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   await rename(temporary, file);
+}
+
+// Copy the validated on-disk snapshot, rather than transporting its base64
+// images through another large MCP message or a browser download sandbox.
+export async function exportSavedProject(name,destination=process.env.ZHONGXING_CANVAS_DOWNLOAD_DIR||join(homedir(),'Downloads')){
+  const size=(await stat(file)).size;if(!size||size>100*1024*1024)throw new Error('已保存项目为空或超过 100MB，请先检查保存状态');
+  const safe=String(name).replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').replace(/^\.+/,'').slice(0,90)||'众行项目';
+  await mkdir(destination,{recursive:true});
+  for(let index=0;index<1000;index++){
+    const savedPath=join(destination,`${safe}${index?` (${index+1})`:''}.zhongxing.json`);
+    try{await copyFile(file,savedPath,constants.COPYFILE_EXCL);return {savedPath,bytes:(await stat(savedPath)).size};}
+    catch(error){if(error.code!=='EEXIST')throw error;}
+  }
+  throw new Error('同名项目文件过多，请修改项目名称后重试');
 }
