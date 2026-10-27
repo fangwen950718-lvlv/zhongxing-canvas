@@ -4,6 +4,7 @@ import { access, cp, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pluginLaunchConfig } from './plugin-launch-config.mjs';
+import {PNG} from 'pngjs';
 
 const source = process.argv[2];
 if (!source) throw new Error('Usage: node scripts/clean-install-test.mjs RELEASE_PLUGIN_ROOT');
@@ -24,6 +25,9 @@ const project = { format: 'zhongxing-canvas', version: 1, name: '隔离升级保
 try {
   const opened = await clientA.callTool({ name: 'open_zhongxing_independent_canvas', arguments: {} });
   if (opened.structuredContent?.rendering !== 'mcp-app' || opened.structuredContent?.browserUrl) throw new Error('Release is not a direct MCP App');
+  const fixture=new PNG({width:2,height:2});fixture.data.fill(255);
+  const hd=await clientA.callTool({name:'create_zhongxing_image_action_job',arguments:{kind:'upscale',upscaleMode:'texture-preserve',sourceImageId:'clean-fixture',sourceWidth:2,sourceHeight:2,width:8,height:8,prompt:'隔离验证本地保真',originalDataURL:`data:image/png;base64,${PNG.sync.write(fixture).toString('base64')}`}});
+  if(hd.isError||hd.structuredContent?.job?.status!=='completed'||hd.structuredContent.job.quality?.generated!==false)throw new Error('Bundled offline HD worker failed');
   const brief = await clientA.callTool({ name: 'create_zhongxing_brief_job', arguments: { brief: '升级保留测试', ruleLabel: '社媒海报', ruleText: '一个主要视觉钩子' } });
   const image = await clientA.callTool({ name: 'create_zhongxing_image_job', arguments: { prompt: '升级保留测试图片', ratio: '1:1' } });
   briefId = brief.structuredContent.job.id; imageId = image.structuredContent.job.id;

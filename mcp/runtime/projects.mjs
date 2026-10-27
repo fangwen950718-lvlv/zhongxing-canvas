@@ -17,7 +17,12 @@ export async function loadProject() {
   try { return validate(await readFile(file, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
-export async function saveProject(text) {
+let saveQueue=Promise.resolve();
+export function saveProject(text){
+  validate(text);
+  const next=saveQueue.catch(()=>{}).then(()=>writeProject(text));saveQueue=next;return next;
+}
+async function writeProject(text) {
   validate(text);
   await mkdir(directory, { recursive: true });
   const temporary = join(directory, `${randomUUID()}.tmp`);

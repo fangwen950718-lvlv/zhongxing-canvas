@@ -6,6 +6,7 @@ import { validateDimensions, normalizeImageOutput } from './image-output.mjs';
 import {makeUpscaleGuides} from './upscale-guides.mjs';
 import {planUpscaleTiles} from './tile-plan.mjs';
 import {tileReference,tilePrompt,normalizeTile,stitchTiles} from './tiled-upscale.mjs';
+import {runTextureUpscale} from './texture-runner.mjs';
 
 export const runtime = getUserDataRoot();
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -56,11 +57,14 @@ async function saveReferenceImages(id, images = []) {
 }
 
 export async function createImageJob(input) {
+  if(input.ruleText!==undefined&&(typeof input.ruleText!=='string'||input.ruleText.length>120000))throw new Error('审美规则超出限制');
+  if(input.ruleLabel!==undefined&&(typeof input.ruleLabel!=='string'||input.ruleLabel.length>200))throw new Error('规则名称无效');
+  if(input.presetId!==undefined&&!['','real','meme','three-d','product','title'].includes(input.presetId))throw new Error('无效质感预设');
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 12000 || !Object.hasOwn(ratios, input.ratio)) throw new Error('请输入提示词并选择有效比例。');
   const id = randomUUID();
   const [width, height] = ratios[input.ratio];
   const references = await saveReferenceImages(id, input.referenceImages);
-  return persist(imageJobPath(id), { id, kind: 'generate', prompt: input.prompt.trim(), ratio: input.ratio, width, height, ...references, status: 'queued', createdAt: new Date().toISOString() });
+  return persist(imageJobPath(id), { id, kind: 'generate', prompt: input.prompt.trim(), ratio: input.ratio, width, height, ...references, ...(input.ruleText?{ruleText:input.ruleText,ruleLabel:input.ruleLabel||''}:{}),...(input.presetId?{presetId:input.presetId}:{}), status: 'queued', createdAt: new Date().toISOString() });
 }
 export async function createImageEditJob(input) {
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 12000) throw new Error('请填写有效的修改意见');
@@ -80,7 +84,7 @@ export async function createImageActionJob(input) {
   if (!['relayout', 'remove-background','upscale'].includes(input.kind)) throw new Error('无效图片操作');
   validateDimensions(input.sourceWidth, input.sourceHeight);
   validateDimensions(input.width, input.height);
-  if(input.upscaleMode!==undefined&&(!['tiled','whole-resample'].includes(input.upscaleMode)||input.kind!=='upscale'))throw new Error('无效高清模式');
+  if(input.upscaleMode!==undefined&&(!['tiled','whole-resample','texture-preserve'].includes(input.upscaleMode)||input.kind!=='upscale'))throw new Error('无效高清模式');
   const tiles=input.kind==='upscale'&&input.upscaleMode==='tiled'?planUpscaleTiles(input.width,input.height):undefined;
   if (typeof input.sourceImageId !== 'string' || !input.sourceImageId || input.sourceImageId.length > 200) throw new Error('来源图片标识无效');
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 12000) throw new Error('图片操作要求无效');
@@ -90,12 +94,19 @@ export async function createImageActionJob(input) {
     const factor=input.width/input.sourceWidth;
     if(![2,4].includes(factor)||input.height!==input.sourceHeight*factor)throw new Error('智能高清只支持原图的 ×2 或 ×4');
     if(original.ext!=='png'||original.bytes.readUInt32BE(16)!==input.sourceWidth||original.bytes.readUInt32BE(20)!==input.sourceHeight)throw new Error('智能高清需要尺寸匹配的原图 PNG');
-    guides=makeUpscaleGuides(original.bytes);
+    if(input.upscaleMode!=='texture-preserve')guides=makeUpscaleGuides(original.bytes);
   }
   const id = randomUUID(), dir = join(runtime, 'job-inputs');
   await mkdir(dir, { recursive: true });
   const originalPath = join(dir, `${id}-original.${original.ext}`);
   await writeFile(originalPath, original.bytes, { mode: 0o600 });
+  if(input.upscaleMode==='texture-preserve'){
+    const result=await runTextureUpscale(original.bytes,input.width,input.height);
+    if(result.bytes.length>25*1024*1024)throw new Error('放大结果超过25MB，请降低倍率');
+    const imageDir=join(runtime,'images');await mkdir(imageDir,{recursive:true});
+    const imageName=`${id}.png`;await writeFile(join(imageDir,imageName),result.bytes,{mode:0o600});
+    return persist(imageJobPath(id),{id,kind:'upscale',upscaleMode:'texture-preserve',sourceImageId:input.sourceImageId,sourceWidth:input.sourceWidth,sourceHeight:input.sourceHeight,width:input.width,height:input.height,ratio:`${input.width}:${input.height}`,prompt:input.prompt,originalPath,imageName,mimeType:'image/png',status:'completed',progress:100,quality:result.quality,message:'本地保真放大完成：轻度平涂去噪与双线性插值，无AI重绘；原有强噪纹可能仍保留，不是超分恢复',createdAt:new Date().toISOString()});
+  }
   const guidePaths={};
   if(guides)for(const [name,bytes] of Object.entries(guides)){const file=join(dir,`${id}-${name}.png`);await writeFile(file,bytes,{mode:0o600});guidePaths[name]=file;}
   return persist(imageJobPath(id), { id, kind: input.kind, prompt: input.prompt.trim(), sourceImageId: input.sourceImageId, sourceWidth: input.sourceWidth, sourceHeight: input.sourceHeight, width: input.width, height: input.height, ratio: `${input.width}:${input.height}`, originalPath, ...(guides?{guidePaths,scale:input.width/input.sourceWidth,reconstruction:true}:{}),...(input.upscaleMode==='whole-resample'?{upscaleMode:'whole-resample',message:'等待整图 AI 修复，随后统一放大尺寸'}:{}),...(tiles?{upscaleMode:'tiled',tiles,maxTileRetries:2,message:`分块高清已准备：共 ${tiles.length} 块`}:{}), outputFormat: 'png', transparent: input.kind === 'remove-background', status: 'queued', createdAt: new Date().toISOString() });

@@ -21,6 +21,7 @@ const resource = await client.readResource({ uri: opened._meta['ui/resourceUri']
 const html = resource.contents[0].text;
 if (Buffer.byteLength(html) > 250_000) throw new Error('Refusing oversized UI resource in acceptance host');
 const events = [];
+let failedCreate=false;
 const hostSource = `
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 const frame=document.querySelector('iframe');
@@ -42,13 +43,21 @@ const http = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/widget') {
       res.setHeader('Content-Type', 'text/html');
       res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; worker-src blob:; frame-src 'none'");
-      res.end(html); return;
+      const fault=process.env.ZHONGXING_TEST_RECOVERY==='1'?`<script>const testButton=document.createElement('button');testButton.textContent='验收：模拟页面异常';testButton.style='position:fixed;right:16px;bottom:80px;z-index:999999';testButton.onclick=()=>window.dispatchEvent(new ErrorEvent('error',{error:new Error('Acceptance fixture'),message:'Acceptance fixture'}));document.body.append(testButton);</script>`:'';
+      res.end(html.replace('</body>',fault+'</body>')); return;
     }
     if (req.method === 'GET' && req.url === '/events') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ dataDir, events })); return; }
     if (req.method !== 'POST') { res.statusCode=404; res.end(); return; }
     let body=''; for await (const chunk of req) { body+=chunk; if (body.length>150_000_000) throw new Error('Test payload too large'); }
     const input=JSON.parse(body); res.setHeader('Content-Type','application/json');
-    if (req.url === '/call') { events.push({type:'tool',name:input.name}); res.end(JSON.stringify(await client.callTool(input))); return; }
+    if (req.url === '/call') {
+      events.push({type:'tool',name:input.name});
+      if(input.name==='create_zhongxing_image_job'){
+        if(process.env.ZHONGXING_TEST_CREATE_DELAY_MS)await new Promise(resolve=>setTimeout(resolve,Math.min(20000,Number(process.env.ZHONGXING_TEST_CREATE_DELAY_MS)||0)));
+        if(process.env.ZHONGXING_TEST_FAIL_CREATE_ONCE==='1'&&!failedCreate){failedCreate=true;res.end(JSON.stringify({isError:true,content:[{type:'text',text:'验收夹具：模拟任务创建失败，未创建服务器任务'}]}));return;}
+      }
+      res.end(JSON.stringify(await client.callTool(input)));return;
+    }
     if (req.url === '/message') {
       const text=input.content?.filter(item=>item.type==='text').map(item=>item.text).join('\n') || '';
       const id=text.match(/[a-f0-9]{8}-[a-f0-9-]{27}/)?.[0];

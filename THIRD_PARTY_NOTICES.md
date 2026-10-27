@@ -2,6 +2,8 @@
 
 ## Brand asset
 
+`assets/preset-examples/` contains five AI-generated, unbranded texture demonstrations created with the built-in image tool (2026-10-27). The portrait is fictional; the examples are not customer photos, identity references or evidence of guaranteed generation quality.
+
 `assets/zhongxing-logo.png` is the original 众行传播 logo supplied by the project owner and included at their explicit request. Brand and trademark rights remain with their respective owner; the code's MIT license does not grant trademark rights or a general license to reuse this logo.
 
 `assets/product-icon.png` is the product icon supplied by the project owner for the plugin listing and composer avatar. The same brand and trademark reservation applies.
@@ -16,5 +18,5 @@ The distributed Widget bundles the following major open-source components:
 - Vite — MIT License (development/build only).
 - Fonts shipped by Excalidraw retain their original MIT, SIL Open Font License, or source notices.
 
-Full license texts and font notices are included in `licenses/`. The public release does not include customer data, test images, private task records, or the original internal aesthetic-rule documents. The five built-in rule presets are independently written public baseline guidance; users can import private Markdown/TXT/JSON rule libraries locally.
+Full license texts and font notices are included in `licenses/`. The public release does not include customer data, private test fixtures or private task records. Version 2.3.0 includes the five V2 aesthetic-rule texts supplied and approved for release by the project owner, plus earlier public baseline texts used for migration. Research source links in these texts retain their attribution; linked third-party images are not bundled and no rights to those images are granted. Users can import private Markdown/TXT/JSON rule libraries locally.
 

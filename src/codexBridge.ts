@@ -158,9 +158,10 @@ export async function createImageJob(
   prompt: string,
   ratio: string,
   referenceImages: ReferenceImageInput[] = [],
+  context:{presetId?:string;ruleText?:string;ruleLabel?:string}={},
 ) {
   const references = referenceImages.map(({ name, dataURL }) => ({ name, dataURL }));
-  const result = await callTool('create_zhongxing_image_job', { prompt, ratio, referenceImages: references });
+  const result = await callTool('create_zhongxing_image_job', { prompt, ratio, referenceImages: references,...context });
   if (result) return toolJob(result);
 
   const response = await fetch('/api/image-jobs', {
@@ -169,7 +170,7 @@ export async function createImageJob(
       'Content-Type': 'application/json',
       'X-Zhongxing-Canvas': '1',
     },
-    body: JSON.stringify({ prompt, ratio, referenceImages: references }),
+    body: JSON.stringify({ prompt, ratio, referenceImages: references,...context }),
   });
   const data = await readJsonResponse<ImageJob & { error?: string }>(response, '生图任务接口');
   if (!response.ok) throw new Error(data.error);
@@ -183,7 +184,7 @@ export async function downloadOriginalImage(dataURL:string,filename:string) {
   return result.structuredContent.savedPath;
 }
 export async function exportSavedProject(name:string){const result=await callTool('export_zhongxing_project',{name}) as {structuredContent?:{savedPath:string;bytes:number}}|null;if(!result)return null;if(!result.structuredContent?.savedPath)throw new Error('导出工具未返回文件保存路径，请更新本机插件后重试');return result.structuredContent;}
-export async function createImageActionJob(input: { kind: 'relayout' | 'remove-background' | 'upscale'; upscaleMode?:'tiled'|'whole-resample'; sourceImageId: string; sourceWidth: number; sourceHeight: number; width: number; height: number; originalDataURL: string; prompt: string }) {
+export async function createImageActionJob(input: { kind: 'relayout' | 'remove-background' | 'upscale'; upscaleMode?:'tiled'|'whole-resample'|'texture-preserve'; sourceImageId: string; sourceWidth: number; sourceHeight: number; width: number; height: number; originalDataURL: string; prompt: string }) {
   const result = await callTool('create_zhongxing_image_action_job', input);
   if (!result) throw new Error('请在 Codex 内打开本机测试版画布后使用图片操作。');
   return toolJob(result);

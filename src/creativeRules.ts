@@ -1,8 +1,8 @@
-import socialPosterRules from "../knowledge/aesthetic-rules/01_社媒海报_审美判断_V1.md?raw";
-import characterPosterRules from "../knowledge/aesthetic-rules/02_人物海报_审美判断_V1.md?raw";
-import threeDIpPosterRules from "../knowledge/aesthetic-rules/03_三维IP海报_审美判断_V1.md?raw";
-import productKeyVisualRules from "../knowledge/aesthetic-rules/04_产品主K_审美判断_V1.md?raw";
-import resourceSlotRules from "../knowledge/aesthetic-rules/05_资源位物料_审美判断_V1.md?raw";
+import socialPosterRules from "../knowledge/aesthetic-rules/01_社媒海报_审美判断_V2.md?raw";
+import characterPosterRules from "../knowledge/aesthetic-rules/02_人物海报_审美判断_V2.md?raw";
+import threeDIpPosterRules from "../knowledge/aesthetic-rules/03_三维IP海报_审美判断_V2.md?raw";
+import productKeyVisualRules from "../knowledge/aesthetic-rules/04_产品主K_审美判断_V2.md?raw";
+import resourceSlotRules from "../knowledge/aesthetic-rules/05_资源位物料_审美判断_V2.md?raw";
 
 export interface RuleLibrary {
   id: string;
@@ -20,7 +20,7 @@ export const rulePresets = {
     description: "节点传播、品牌社媒单图与日常营销海报。",
     rules: socialPosterRules,
     source: "built-in",
-    sourceFile: "01_社媒海报_审美判断_V1.md",
+    sourceFile: "01_社媒海报_审美判断_V2.md",
   },
   "character-poster": {
     id: "character-poster",
@@ -28,7 +28,7 @@ export const rulePresets = {
     description: "代言人、嘉宾、角色官宣与人物系列视觉。",
     rules: characterPosterRules,
     source: "built-in",
-    sourceFile: "02_人物海报_审美判断_V1.md",
+    sourceFile: "02_人物海报_审美判断_V2.md",
   },
   "3d-ip-poster": {
     id: "3d-ip-poster",
@@ -36,7 +36,7 @@ export const rulePresets = {
     description: "品牌吉祥物、三维玩偶与 IP 联合视觉。",
     rules: threeDIpPosterRules,
     source: "built-in",
-    sourceFile: "03_三维IP海报_审美判断_V1.md",
+    sourceFile: "03_三维IP海报_审美判断_V2.md",
   },
   "product-key-visual": {
     id: "product-key-visual",
@@ -44,7 +44,7 @@ export const rulePresets = {
     description: "新品上市、产品卖点与品牌产品广告。",
     rules: productKeyVisualRules,
     source: "built-in",
-    sourceFile: "04_产品主K_审美判断_V1.md",
+    sourceFile: "04_产品主K_审美判断_V2.md",
   },
   "resource-slot-material": {
     id: "resource-slot-material",
@@ -52,7 +52,7 @@ export const rulePresets = {
     description: "App 资源位、Banner、活动入口与促销卡片。",
     rules: resourceSlotRules,
     source: "built-in",
-    sourceFile: "05_资源位物料_审美判断_V1.md",
+    sourceFile: "05_资源位物料_审美判断_V2.md",
   },
 } as const satisfies Record<string, RuleLibrary>;
 

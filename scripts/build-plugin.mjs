@@ -9,6 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'mcp', 'generated');
 
 await mkdir(outputDir, { recursive: true });
+await build({entryPoints:[path.join(root,'mcp/runtime/texture-worker.mjs')],outfile:path.join(outputDir,'texture-worker.mjs'),bundle:true,platform:'node',format:'esm',target:'node22',minify:true,banner:{js:'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'}});
 await build({
   entryPoints: [path.join(root, 'mcp', 'server.mjs')],
   outfile: path.join(outputDir, 'server.mjs'),
@@ -32,7 +33,7 @@ const manifest = {
   mcp: 'zhongxing_canvas',
   widget: `ui://zhongxing-canvas/${pkg.version}/index.html`,
   builtAt: new Date().toISOString(),
-  files: ['server.mjs', 'zhongxing-canvas-widget.html', 'asset-manifest.json', 'assets/application.js.gz', 'assets/application.css.gz'],
+  files: ['server.mjs', 'texture-worker.mjs', 'zhongxing-canvas-widget.html', 'asset-manifest.json', 'assets/application.js.gz', 'assets/application.css.gz'],
 };
 await writeFile(path.join(outputDir, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 await mkdir(path.join(root, '.codex-plugin'), { recursive: true });

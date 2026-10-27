@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-10-27",
+  "backend": "Codex built-in image tool",
+  "purpose": "Texture examples, fictional and unbranded; not attached to user jobs automatically",
+  "previewLongEdge": 384,
+  "prompts": {
+    "real": "Photorealistic natural portrait thumbnail, fictional East Asian man about 45, narrow oval face, natural slight asymmetry, short side-part black hair with individually soft strands, light grey crewneck, calm thoughtful expression, window light, grey studio wall. Visible subtle skin variation and pores without exaggerated pores, no glamour retouch, no jewelry, no suit, no text or logos. Square.",
+    "meme": "Casual smartphone snapshot thumbnail for a relatable social meme texture preset: an ordinary orange cat sitting next to an empty cardboard box in a lived-in apartment, slightly clumsy framing, natural clutter and window reflections, slight handheld softness and fine sensor noise, imperfect white balance, candid believable moment, no commercial polish, no words or logos. Square.",
+    "three-d": "3D poster texture example thumbnail: one sculptural clear glass loop on a brushed silver metal plinth, matte cobalt plastic sphere, precisely two broad lights from left and upper right creating explainable reflection and refraction, clear focal hierarchy, fine material detail, no random particles, no text or logos, square.",
+    "product": "Photorealistic unbranded product still life thumbnail: one plain white ceramic pump bottle, without any label or logo, on a graphite surface next to one small translucent glass slab; soft broad side light, credible subtle reflections and contact shadow, ceramic and glass distinctly textured, restrained neutral palette, no water splash, no words, square.",
+    "title": "Chinese KV headline lettering specimen, render exactly the two Chinese characters 向前 and nothing else. Bold custom condensed sans title lettering with forward rhythm, coherent angular cuts and strong stable counters, crisp white letters on pure black, no English, no decoration, no scene, no logos, square."
+  }
+}

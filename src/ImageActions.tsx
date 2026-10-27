@@ -5,14 +5,16 @@ import { createImageActionJob, downloadOriginalImage, sendCodexMessage } from '.
 import { actionPrompt, commandForImageJob, originalFile } from './imageActionUtils';
 import type { ImageJob } from './ImageGenerator';
 
-export default function ImageActions({ api, image, position, projectName, onAnnotate, onDownload, onCreated, onStatus, onRetryNeeded }: {
+export default function ImageActions({ api, image, position, projectName, onAnnotate, onParameters, onDownload, onCreated, onStatus, onRetryNeeded }: {
   api: ExcalidrawImperativeAPI; image: ExcalidrawElement; position:{left:number;top:number}; projectName:string;
   onAnnotate:()=>void; onDownload:(blob:Blob,name:string,savedPath?:string)=>void; onCreated:(job:ImageJob,source:ExcalidrawElement)=>void; onStatus:(message:string)=>void;
   onRetryNeeded:(id:string)=>void;
+  onParameters:()=>void;
 }) {
   const [size,setSize]=useState<{width:string;height:string}|null>(null);
   const [busy,setBusy]=useState(false), [error,setError]=useState('');
   const [hd,setHd]=useState<{width:number;height:number;factor:2|4}|null>(null);
+  const [hdMode,setHdMode]=useState<'texture-preserve'|'whole-resample'>('texture-preserve');
   const hdError=hd&&(Math.max(hd.width,hd.height)*hd.factor>8192||hd.width*hd.height*hd.factor*hd.factor>32_000_000)?'目标超过最大边 8192px 或 3200 万像素，请降低倍率。':'';
   async function source() {
     if(image.type!=='image'||!image.fileId) throw new Error('请选中一张图片');
@@ -23,15 +25,15 @@ export default function ImageActions({ api, image, position, projectName, onAnno
   }
   async function download() {
     setBusy(true);
-    try { const {file}=await source(); const output=originalFile(file.dataURL, `${projectName}-原图-${image.id.slice(0,8)}`); const savedPath=await downloadOriginalImage(file.dataURL,output.name); onDownload(output.blob,output.name,savedPath||undefined); }
+    try { const {file,decoded}=await source(); decoded.src=''; const output=originalFile(file.dataURL, `${projectName}-原图-${image.id.slice(0,8)}`); const savedPath=await downloadOriginalImage(file.dataURL,output.name); onDownload(output.blob,output.name,savedPath||undefined); }
     catch(e){onStatus(`原图下载失败：${e instanceof Error?e.message:e}`);}
     finally{setBusy(false);}
   }
   async function openSize() {
-    try {const s=await source();setSize({width:String(s.width),height:String(s.height)});setError('');}
+    try {const s=await source();s.decoded.src='';setSize({width:String(s.width),height:String(s.height)});setError('');}
     catch(e){onStatus(String(e));}
   }
-  async function openHd() {try{const s=await source();setHd({width:s.width,height:s.height,factor:2});setError('');}catch(e){onStatus(String(e));}}
+  async function openHd() {try{const s=await source();s.decoded.src='';setHd({width:s.width,height:s.height,factor:2});setError('');}catch(e){onStatus(String(e));}}
   async function submit(kind:'relayout'|'remove-background'|'upscale') {
     setBusy(true);setError('');
     try {
@@ -43,8 +45,10 @@ export default function ImageActions({ api, image, position, projectName, onAnno
         const canvas=document.createElement('canvas');canvas.width=s.width;canvas.height=s.height;
         const ctx=canvas.getContext('2d');if(!ctx)throw new Error('无法读取原图');ctx.drawImage(s.decoded,0,0);originalDataURL=canvas.toDataURL('image/png');
       }
-      const job=await createImageActionJob({kind,...(kind==='upscale'?{upscaleMode:'whole-resample' as const}:{}),sourceImageId:image.id,sourceWidth:s.width,sourceHeight:s.height,width,height,originalDataURL,prompt:kind==='upscale'?`整图 AI 修复：保持完整原图 ${s.width}:${s.height} 的比例和边界，锁定主体身份、数量、位置、逐字文案、颜色及光照。三稿只用于整体轮廓、大色块与明暗层级；线稿已去除细碎纹理，不要补描或复制原图中的蚯蚓纹、噪点和融化瑕疵，不把这些瑕疵当作真实结构。细节应按正常材质自然重建，不能照描参考图每一道微小线条。只修复受损材质，不重做设计、不增加纹理噪点或锐化光晕。输出模型原生尽可能清晰的完整 PNG，不切块、不拼接，不强求目标像素。之后插件会统一重采样到 ${width}×${height}，这不是模型原生目标分辨率。`:actionPrompt(kind,width,height)});
+      s.decoded.src='';
+      const job=await createImageActionJob({kind,...(kind==='upscale'?{upscaleMode:hdMode}:{}),sourceImageId:image.id,sourceWidth:s.width,sourceHeight:s.height,width,height,originalDataURL,prompt:kind==='upscale'?hdMode==='texture-preserve'?`本地非生成式保真放大到 ${width}×${height}，不AI重绘，不调用线稿，不切块，不锐化。`:`整图 AI 修复：保持完整原图 ${s.width}:${s.height} 的比例和边界，锁定主体身份、数量、位置、逐字文案、颜色及光照。仅原图作为像素编辑目标，三稿只说明结构，不重建三稿纹理。不要补描或复制蚯蚓纹、噪点和融化瑕疵。无额外噪点与锐化。输出原生尽可能清晰的完整 PNG，不切块、不拼接。插件再统一尺寸，不是原生超分。`:actionPrompt(kind,width,height)});
       onCreated(job,image);setSize(null);setHd(null);
+      if(job.status==='completed'){onStatus(job.message||'本地放大已完成，正在回填原图旁，不消耗生图额度。');return;}
       onStatus('任务已创建，正在发送到 Codex…');
       const sent=await sendCodexMessage(commandForImageJob(job));
       if(!sent)onRetryNeeded(job.id);
@@ -59,11 +63,12 @@ export default function ImageActions({ api, image, position, projectName, onAnno
       <button disabled={busy} onClick={()=>void openSize()}>延展尺寸</button>
       <button disabled={busy} onClick={()=>void submit('remove-background')}>{busy?'正在提交…':'去除背景'}</button>
       <button disabled={busy} onClick={()=>void openHd()}>智能高清</button>
+      <button disabled={busy} onClick={onParameters}>生图参数</button>
     </div>
     {hd&&<div className="modal-shade" onPointerDown={e=>e.stopPropagation()}><section className="modal generation-modal" role="dialog" aria-modal="true" aria-label="智能高清">
-      <h2>智能高清 · 整图修复</h2><p>先由 AI 修复完整画面的模糊与受损纹理，再统一放大至所选尺寸。不切块、不拼接；用原图和三稿约束构图，仍需核对文字与细节。</p>
+      <h2>智能高清</h2><label className="field">处理方式<select aria-label="高清处理方式" disabled={busy} value={hdMode} onChange={e=>setHdMode(e.target.value as typeof hdMode)}><option value="texture-preserve">保留纹理 · 本地放大（推荐对照）</option><option value="whole-resample">AI 整图修复 · 可能改动细节</option></select></label><p>{hdMode==='texture-preserve'?'不重画人脸、发丝或文字。轻度清理平涂小噪点，再用无振铃的双线性插值放大；不会创造新细节，原有强噪纹仍可能保留。':'整图AI修复再统一放大，不切块；线稿只作结构提示。模型没有可调去噪强度接口，仍可能重画或新增瑕疵。'}</p>
       <div className="ratio-grid">{([2,4] as const).map(factor=><button key={factor} disabled={busy} aria-pressed={hd.factor===factor} onClick={()=>setHd({...hd,factor})}>×{factor}<small>{hd.width*factor} × {hd.height*factor} px</small></button>)}</div>
-      <p>{hdError||'预计 1 次整图生图，失败最多额外重试 1 次。'} 最后一步为本地 Lanczos 重采样，并非原生 ×2/×4 超分细节；不会保证恢复已丢失的信息。最大边 8192px、3200 万像素，原图保留。</p>
+      <p>{hdError||(hdMode==='texture-preserve'?'不调用模型，不消耗生图额度。':'预计1次生图，失败最多额外重试1次。')} 并非原生 ×2/×4 超分，100%视图请核对文字与纹理。最大边8192px、3200万像素，原图保留。</p>
       {error&&<p role="alert">{error}</p>}<div className="modal-actions"><button disabled={busy} onClick={()=>setHd(null)}>取消</button><button disabled={busy||!!hdError} className="primary compact" onClick={()=>void submit('upscale')}>{busy?'正在发送…':'确认高清'}</button></div>
     </section></div>}
     {size&&<div className="modal-shade" onPointerDown={e=>e.stopPropagation()}><section className="modal generation-modal" role="dialog" aria-modal="true" aria-label="延展尺寸">
