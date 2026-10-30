@@ -2,6 +2,7 @@ import { App as McpApp } from '@modelcontextprotocol/ext-apps';
 import packageInfo from '../package.json';
 import type { ImageJob } from './ImageGenerator';
 import type { ReferenceImageInput } from './ReferenceImagePicker';
+import type { FoundReference } from './project';
 
 export interface BriefJob {
   id: string;
@@ -10,6 +11,7 @@ export interface BriefJob {
   proposal?: string;
   imagePrompt?: string;
   options?: CreativeOption[];
+  referenceGroups?: Array<{ references: FoundReference[]; message: string } | null>;
   message?: string;
   handoffQueued?: boolean;
   automationStarted?: boolean;

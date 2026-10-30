@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useContext, useRef, useState } from 'react';
+import { CanvasReferences } from './CanvasReferences';
 
 export interface ReferenceImageInput {
   id: string;
@@ -36,6 +37,19 @@ export default function ReferenceImagePicker({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
+  const [showCanvas, setShowCanvas] = useState(false);
+  const canvas = useContext(CanvasReferences);
+  const canvasImages = canvas?.getSceneElements().filter(element => element.type === 'image' && !element.isDeleted && !!element.fileId) || [];
+  function addCanvasImage(element: typeof canvasImages[number]) {
+    if (!canvas || element.type !== 'image' || !element.fileId) return;
+    const file = canvas.getFiles()[element.fileId];
+    if (!file || !acceptedTypes.has(file.mimeType)) { setError('图片不可用或格式不支持，请先导入 PNG、JPEG 或 WebP。'); return; }
+    const bytes = estimatedDataBytes(file.dataURL);
+    if (bytes > MAX_FILE_BYTES || value.reduce((sum, item) => sum + estimatedDataBytes(item.dataURL), 0) + bytes > MAX_TOTAL_BYTES) { setError('每张参考图需小于 8MB，合计不超过 32MB。'); return; }
+    if (value.some(item => item.id === `canvas:${element.id}`)) return;
+    onChange([...value, { id: `canvas:${element.id}`, name: `画布图片 ${element.id.slice(0,8)}`, dataURL: file.dataURL }]);
+    setError('');
+  }
 
   async function addFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -89,7 +103,13 @@ export default function ReferenceImagePicker({
         >
           ＋ {compact ? `参考图 ${value.length}` : '添加参考图'}
         </button>
+        {canvas && <button type="button" className="reference-add" disabled={disabled} onClick={() => setShowCanvas(!showCanvas)}>从画布选择</button>}
       </div>
+      {showCanvas && <div className="reference-row" aria-label="画布图片列表">{canvasImages.length ? canvasImages.map(element => {
+        if (element.type !== 'image' || !element.fileId) return null;
+        const file = canvas?.getFiles()[element.fileId];
+        return file ? <button type="button" className="reference-thumb" key={element.id} onClick={() => addCanvasImage(element)} aria-label={`选择画布图片 ${element.id.slice(0,8)}`}><img src={file.dataURL} alt="画布图片" /></button> : null;
+      }) : <span>画布上暂无图片</span>}</div>}
       <input
         ref={inputRef}
         className="visually-hidden"

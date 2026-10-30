@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react';
+import { useContext, useRef, useState } from 'react';
 import ReferenceImagePicker, { type ReferenceImageInput } from './ReferenceImagePicker';
+import { CanvasReferences } from './CanvasReferences';
 import PresetLibrary from './PresetLibrary';
 import type {GenerationDraft, GenerationParams} from './generationParams';
 
@@ -52,8 +53,12 @@ export default function ImageGenerator({
   const [error,setError]=useState('');
   const submitted=useRef(false);
   const [referenceImages, setReferenceImages] = useState<ReferenceImageInput[]>(initialReferences);
+  const canvas = useContext(CanvasReferences);
   function createJob() {
     if(submitted.current||!prompt.trim())return;
+    const existing = new Set(canvas?.getSceneElements().filter(element => element.type === 'image' && !element.isDeleted).map(element => element.id) || []);
+    const validReferences = referenceImages.filter(ref => !ref.id.startsWith('canvas:') || existing.has(ref.id.slice(7)));
+    if (validReferences.length !== referenceImages.length) { setReferenceImages(validReferences); setError('部分画布参考图已被删除，已移除，请确认后重新生图。'); return; }
     submitted.current=true;setError('');
     const accepted=onSubmit({prompt,ratio,preset,referenceImages,ruleText:initialParams?.ruleText??ruleText,ruleLabel:initialParams?.ruleLabel??ruleLabel});
     if(accepted)setBusy(true);

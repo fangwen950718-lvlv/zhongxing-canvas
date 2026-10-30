@@ -65,6 +65,12 @@ const http = createServer(async (req, res) => {
       if (!id) throw new Error('Task UUID missing');
       if (text.includes('zhongxing-canvas-brief')) {
         await client.callTool({name:'complete_zhongxing_brief_job',arguments:{id,options:[1,2,3].map(n=>({title:'测试方向 '+n,proposal:'确定性测试方案 '+n,sections:[{label:'创意主轴',content:'测试主体'},{label:'视觉主体',content:'单一物体'},{label:'构图层级',content:'主体居中'},{label:'风险提示',content:'仅为验收夹具'}],imagePrompt:'仅用于验收的测试图 '+n}))}});
+      } else if (text.includes('zhongxing-canvas-reference')) {
+        for (let index=0;index<3;index++) {
+          const result=await client.callTool({name:'save_zhongxing_op_references',arguments:{id,index,references:[{title:`验收参考 ${index+1}`,source:'测试夹具',pageUrl:`https://example.com/op-${index+1}`,previewFile:fixture,description:'仅用于验证显示与回填'}]}});
+          if(result.isError)throw new Error(JSON.stringify(result));
+        }
+        events.push({type:'mock-references-completed',id});
       } else {
         const loaded=await client.callTool({name:'get_zhongxing_image_job',arguments:{id}});
         if(loaded.structuredContent.job.upscaleMode==='tiled'){

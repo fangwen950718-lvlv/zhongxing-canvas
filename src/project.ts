@@ -40,6 +40,7 @@ export interface Project {
   aiProposal?: string;
   aiImagePrompt?: string;
   aiOptions?: CreativeOption[];
+  aiReferenceJobId?: string;
   aiSelectedOption?: number;
   rulePreset?: string;
   ruleLibraryId?: string;
@@ -61,6 +62,15 @@ export interface CreativeOption {
   proposal: string;
   sections?: ProposalSection[];
   imagePrompt: string;
+  references?: FoundReference[];
+  referenceMessage?: string;
+}
+export interface FoundReference { title: string; source: string; pageUrl: string; imageUrl?: string; description?: string; preview?: string }
+function validFoundReference(value: unknown): value is FoundReference {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  const url = (v: unknown) => { try { const u = new URL(String(v)); return typeof v === 'string' && v.length <= 2048 && u.protocol === 'https:' && !u.username && !u.password; } catch { return false; } };
+  return typeof r.title === 'string' && r.title.length > 0 && r.title.length <= 160 && typeof r.source === 'string' && r.source.length > 0 && r.source.length <= 160 && url(r.pageUrl) && (r.imageUrl === undefined || url(r.imageUrl)) && (r.description === undefined || typeof r.description === 'string' && r.description.length <= 500) && (r.preview === undefined || typeof r.preview === 'string' && r.preview.length <= 120000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(r.preview));
 }
 export interface ProposalSection {
   label: string;
@@ -173,7 +183,7 @@ export function parseProject(value: unknown): Project {
     throw new Error("自定义知识内容损坏。");
   if (value.aiSelectedOption !== undefined && (!Number.isInteger(value.aiSelectedOption) || value.aiSelectedOption < 0 || value.aiSelectedOption > 2))
     throw new Error("方案选择记录损坏。");
-  if (value.aiOptions !== undefined && (!Array.isArray(value.aiOptions) || value.aiOptions.length > 3 || value.aiOptions.some((option: unknown) => !object(option) || typeof option.title !== "string" || !option.title.trim() || option.title.length > 120 || typeof option.proposal !== "string" || !option.proposal.trim() || option.proposal.length > 30000 || (option.sections !== undefined && (!Array.isArray(option.sections) || option.sections.length > 10 || option.sections.some((section: unknown) => !object(section) || typeof section.label !== "string" || !section.label.trim() || section.label.length > 40 || typeof section.content !== "string" || !section.content.trim() || section.content.length > 5000))) || typeof option.imagePrompt !== "string" || !option.imagePrompt.trim() || option.imagePrompt.length > 30000)))
+  if (value.aiOptions !== undefined && (!Array.isArray(value.aiOptions) || value.aiOptions.length > 3 || value.aiOptions.some((option: unknown) => !object(option) || typeof option.title !== "string" || !option.title.trim() || option.title.length > 120 || typeof option.proposal !== "string" || !option.proposal.trim() || option.proposal.length > 30000 || (option.sections !== undefined && (!Array.isArray(option.sections) || option.sections.length > 10 || option.sections.some((section: unknown) => !object(section) || typeof section.label !== "string" || !section.label.trim() || section.label.length > 40 || typeof section.content !== "string" || !section.content.trim() || section.content.length > 5000))) || typeof option.imagePrompt !== "string" || !option.imagePrompt.trim() || option.imagePrompt.length > 30000 || (option.references !== undefined && (!Array.isArray(option.references) || option.references.length > 4 || option.references.some((r: unknown) => !validFoundReference(r)))) || (option.referenceMessage !== undefined && (typeof option.referenceMessage !== 'string' || option.referenceMessage.length > 500)))))
     throw new Error("多方案数据损坏。");
   if (
     !object(value.brief) ||
@@ -287,6 +297,7 @@ export function parseProject(value: unknown): Project {
     aiProposal: value.aiProposal || "",
     aiImagePrompt: value.aiImagePrompt || "",
     aiOptions: value.aiOptions || [],
+    aiReferenceJobId: typeof value.aiReferenceJobId === 'string' && /^[a-f0-9-]{36}$/.test(value.aiReferenceJobId) ? value.aiReferenceJobId : undefined,
     aiSelectedOption: value.aiSelectedOption || 0,
     rulePreset: migratedPreset,
     ruleLibraryId,

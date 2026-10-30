@@ -23,7 +23,6 @@ export function saveProject(text){
   const next=saveQueue.catch(()=>{}).then(()=>writeProject(text));saveQueue=next;return next;
 }
 async function writeProject(text) {
-  validate(text);
   await mkdir(directory, { recursive: true });
   const temporary = join(directory, `${randomUUID()}.tmp`);
   await writeFile(temporary, text, { mode: 0o600 });

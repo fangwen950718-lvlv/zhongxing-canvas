@@ -12,6 +12,7 @@ import type {
 } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import "./style.css";
+import "./reference-results.css";
 import brandLogo from "../assets/zhongxing-logo.png";
 import {
   BUILD,
@@ -32,7 +33,8 @@ import { commandForImageJob, imageActionFrame, nextImagePosition, imageActionsPo
 import { groupExistingAnnotations, selectedAnnotationImage } from './annotationGroups';
 import {createSceneSignature} from './sceneSignature';
 import ImageSizeInfo from './ImageSizeInfo';
-import { createImageJob, createBriefJob, getBriefJob, getImageJob, retryImageJob, cancelImageJob, exportSavedProject, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
+import { CanvasReferences } from './CanvasReferences';
+import { callTool, createImageJob, createBriefJob, getBriefJob, getImageJob, retryImageJob, cancelImageJob, exportSavedProject, requestCanvasFullscreen, sendCodexMessage } from './codexBridge';
 import {projectBlobInWorker} from './projectExport';
 import {createSaveSchedule} from './saveSchedule';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
@@ -126,6 +128,27 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   const [briefJobId,setBriefJobId]=useState('');
   const [briefBusy,setBriefBusy]=useState(false);
   const [briefProgress,setBriefProgress]=useState('');
+  const [updateInfo,setUpdateInfo]=useState<{latest?:string;available?:boolean;message?:string;busy?:boolean}>({});
+  async function checkPluginUpdate() {
+    setUpdateInfo(previous=>({...previous,busy:true,message:'正在检查更新…'}));
+    try {
+      const result=await callTool('check_zhongxing_update',{}) as {structuredContent?:{latest:string;available:boolean;current:string}} | null;
+      if(!result?.structuredContent)throw new Error('当前环境暂不支持检查更新');
+      if(result.structuredContent.current.includes('-local.')) setUpdateInfo({latest:result.structuredContent.latest,available:false,message:`本机测试版 · 正式版 ${result.structuredContent.latest}`,busy:false});
+      else setUpdateInfo({...result.structuredContent,message:result.structuredContent.available?'发现新版本':'已是最新正式版本',busy:false});
+    } catch { setUpdateInfo({message:'暂时无法检查更新，请检查网络后重试。',busy:false}); }
+  }
+  async function installPluginUpdate() {
+    setUpdateInfo(previous=>({...previous,busy:true,message:'正在更新，请不要关闭画布…'}));
+    try {
+      const result=await callTool('install_zhongxing_update',{}) as {structuredContent?:{version:string;message:string}} | null;
+      if(!result?.structuredContent)throw new Error('当前环境暂不支持更新');
+      setUpdateInfo({message:`${result.structuredContent.message}（${result.structuredContent.version}）`,busy:false});
+    } catch(error) { setUpdateInfo(previous=>({...previous,busy:false,message:error instanceof Error?error.message:'更新失败，请重试。'})); }
+  }
+  useEffect(()=>{void checkPluginUpdate();},[]);
+  const [referenceStatus,setReferenceStatus]=useState(initial.aiReferenceJobId ? '正在检查参考图任务…' : '');
+  const [referenceAttempt,setReferenceAttempt]=useState(0);
   const [selectedImageId,setSelectedImageId]=useState('');
   const [selectedImageAction,setSelectedImageAction]=useState<{left:number;top:number}|null>(null);
   const [annotationImageId,setAnnotationImageId]=useState('');
@@ -226,7 +249,17 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
       a.updateScene({elements:[...current.filter(e=>e.customData?.zhongxingImageJobId!==job.id),...image],captureUpdate:CaptureUpdateAction.IMMEDIATELY});setRetryJobId(previous=>previous===job.id?'':previous);setJobStatus(job.upscaleMode==='texture-preserve'?job.message||'本地保真放大完成，非AI重绘':job.upscaleMode==='whole-resample'?`${job.message}。原图保留，请核对细节。`:job.kind==='upscale'?'高清重绘已放回画布，原图保留；请核对文字与细节。':job.kind==='relayout'?'延展图片已放回画布，请核对文字与细节。':job.kind==='remove-background'?'透明 PNG 已放回画布，原图已保留。':'生成图片已放回画布，正在本地保存。');
     }}catch{setJobStatus('暂未取得生成结果，本地任务仍保留；请确认服务运行后重试。');}finally{polling.current=false;}
   },2000);return()=>clearInterval(timer);},[]);
-  useEffect(()=>{if(!briefJobId)return;const timer=setInterval(async()=>{try{const job=await getBriefJob(briefJobId);const options=job.options?.length?job.options:(job.proposal&&job.imagePrompt?[{title:'方案',proposal:job.proposal,imagePrompt:job.imagePrompt}]:[]);if(job.status==='completed'&&options.length){update({...live.current,aiOptions:options,aiSelectedOption:0,aiProposal:options[0].proposal,aiImagePrompt:options[0].imagePrompt});setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(options.length===3?'三组方案与提示词已生成，请选择一个方向。':'方案与 demo 级提示词已生成，可以直接生图。');}else if(job.status==='failed'){setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(`方案生成失败：${job.message||'请在 Codex 中查看原因'}`);}else{const events=(job.progressEvents||[]).slice(-2).map(event=>`• ${event.text}`).join('\n');setBriefProgress(`${job.progress||0}% · ${job.message||'Codex 正在整理视觉方案…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);}}catch{/* 保留任务并继续轮询 */}},1800);return()=>clearInterval(timer);},[briefJobId]);
+  async function sendReferenceSearch(id:string) {
+    setReferenceStatus('正在发送参考图搜索任务…');
+    try { if(!await callTool('reset_zhongxing_op_references',{id})) throw new Error('请在 Codex 中打开画布'); }
+    catch { setReferenceStatus('参考图任务未启动，可点击重新查找。'); return; }
+    setReferenceAttempt(attempt=>attempt+1);
+    const sent=await sendCodexMessage(`这是众行画布的参考图任务。使用 $zhongxing-canvas-reference 读取方案任务 ${id}，逐个方向搜索并调用回填工具。方案已完成，请勿修改方案。`);
+    if(live.current.aiReferenceJobId!==id)return;
+    setReferenceStatus(sent?'正在查找各方向的参考图，可继续使用方案。':'参考图任务未发送，可点击重新查找。');
+  }
+  useEffect(()=>{if(!briefJobId)return;let active=true;let busy=false;const timer=setInterval(async()=>{if(busy)return;busy=true;try{const job=await getBriefJob(briefJobId);if(!active)return;const options=job.options?.length?job.options:(job.proposal&&job.imagePrompt?[{title:'方案',proposal:job.proposal,imagePrompt:job.imagePrompt}]:[]);if(job.status==='completed'&&options.length){update({...live.current,aiOptions:options,aiSelectedOption:0,aiProposal:options[0].proposal,aiImagePrompt:options[0].imagePrompt,aiReferenceJobId:job.id});setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(options.length===3?'三组方案与提示词已生成，请选择一个方向。':'方案与 demo 级提示词已生成，可以直接生图。');void sendReferenceSearch(job.id);}else if(job.status==='failed'){setBriefJobId('');setBriefBusy(false);setBriefProgress('');setNotice(`方案生成失败：${job.message||'请在 Codex 中查看原因'}`);}else{const events=(job.progressEvents||[]).slice(-2).map(event=>`• ${event.text}`).join('\n');setBriefProgress(`${job.progress||0}% · ${job.message||'Codex 正在整理视觉方案…'}${job.codexThreadId?`\nCodex 任务 ${job.codexThreadId.slice(0,8)}…`:''}${events?`\n${events}`:''}`);}}catch{/* 保留任务并继续轮询 */}finally{busy=false;}},1800);return()=>{active=false;clearInterval(timer);};},[briefJobId]);
+  useEffect(()=>{const id=project.aiReferenceJobId;if(!id)return;let active=true;let busy=false;let attempts=0;const timer=setInterval(async()=>{if(busy)return;busy=true;try{const job=await getBriefJob(id);if(!active||live.current.aiReferenceJobId!==id)return;const groups=job.referenceGroups||[];const options=live.current.aiOptions||[];let changed=false;const next=options.map((option,index)=>{const group=groups[index];if(!group)return option;if(JSON.stringify(option.references||[])===JSON.stringify(group.references)&&option.referenceMessage===(group.message||''))return option;changed=true;return {...option,references:group.references,referenceMessage:group.message||''};});if(changed)update({...live.current,aiOptions:next});if(groups.length>=options.length&&options.length&&groups.slice(0,options.length).every(Boolean)){setReferenceStatus('参考图搜索已完成。');clearInterval(timer);}else if(++attempts>=150){setReferenceStatus('参考图暂未返回，可重新查找。');clearInterval(timer);}}catch{if(++attempts>=10){setReferenceStatus('参考图任务暂不可读，可重新查找。');clearInterval(timer);}}finally{busy=false;}},2000);return()=>{active=false;clearInterval(timer);};},[project.aiReferenceJobId,referenceAttempt]);
   const [projectExport,setProjectExport]=useState<{busy:boolean;message:string;path?:string;url?:string;name?:string;bytes?:number}|null>(null);
   const exporting=useRef(false);
   const [imageExport, setImageExport] = useState<{url:string;name:string;savedPath?:string}|null>(null);
@@ -419,7 +452,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
   }
   return (
     <div className="app">
-      {showImageGenerator&&<ImageGenerator initialPrompt={imageGeneratorPrompt} initialParams={generatorParams} initialReferences={generatorReferences} ruleText={effectiveRules(project,selectedLibrary)} ruleLabel={selectedLibrary.label} onClose={()=>setShowImageGenerator(false)} onSubmit={draft=>{if(creatingGeneration.current||!api.current)return false;void submitGeneration(draft);return true;}}/>}
+      {showImageGenerator&&<CanvasReferences.Provider value={editorApi}><ImageGenerator initialPrompt={imageGeneratorPrompt} initialParams={generatorParams} initialReferences={generatorReferences} ruleText={effectiveRules(project,selectedLibrary)} ruleLabel={selectedLibrary.label} onClose={()=>setShowImageGenerator(false)} onSubmit={draft=>{if(creatingGeneration.current||!api.current)return false;void submitGeneration(draft);return true;}}/></CanvasReferences.Provider>}
       {missingParams&&<div className="modal-shade"><section className="modal" role="dialog" aria-modal="true" aria-label="生图参数"><h2>生图参数</h2><p>该图无参数记录</p><p className="footnote">导入图片或未保存参数的历史图片，无法准确还原当时的设置。</p><button onClick={()=>setMissingParams(false)}>关闭</button></section></div>}
       {failedGeneration&&<div className="generation-retry"><button onClick={()=>{const {draft,token}=failedGeneration;const a=api.current;a?.updateScene({elements:a.getSceneElements().filter(el=>el.customData?.zhongxingPendingGeneration!==token),captureUpdate:CaptureUpdateAction.IMMEDIATELY});setFailedGeneration(null);setImageGeneratorPrompt(draft.prompt);setGeneratorParams(generationSnapshot(draft));setGeneratorReferences(draft.referenceImages);setShowImageGenerator(true);}}>重新编辑生图</button></div>}
       {jobStatus&&<div className="job-status" role="status">{jobStatus}{activeTileJob&&<button disabled={cancelBusy} onClick={()=>void stopTiles()}>{cancelBusy?'正在中止…':'中止后续分块'}</button>}{retryJobId&&<button disabled={retryBusy} onClick={()=>void resendImageJob()}>{retryBusy?'正在重发…':'重新发送 / 重试'}</button>}<button onClick={()=>setJobStatus('')}>收起</button></div>}
@@ -442,6 +475,8 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
           </span>
         </div>
         <span className="version">{BUILD}</span>
+        <span className="version" role="status">{updateInfo.message}{updateInfo.latest&&updateInfo.available?` · ${updateInfo.latest}`:''}</span>
+        {updateInfo.available ? <button disabled={updateInfo.busy} onClick={()=>void installPluginUpdate()}>立即更新</button> : <button disabled={updateInfo.busy} onClick={()=>void checkPluginUpdate()}>检查更新</button>}
         <nav>
           <button onClick={() => input.current?.click()}>导入项目</button>
           <button disabled={projectExport?.busy} onClick={()=>void exportProject()}>导出项目</button>
@@ -486,13 +521,13 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
                   rows={7}
                   value={project.creativeBrief || ''}
                   placeholder="说清楚要做什么、给谁看、希望什么感觉。品牌、画面、文案和限制可以一起写在这里。"
-                  onChange={(event) => update({ ...live.current, creativeBrief: event.target.value, aiOptions: [], aiProposal: '', aiImagePrompt: '' })}
+                  onChange={(event) => update({ ...live.current, creativeBrief: event.target.value, aiOptions: [], aiProposal: '', aiImagePrompt: '', aiReferenceJobId: undefined })}
                 />
               </label>
               <div className="knowledge-settings">
                 <label>
                   审美规则
-                  <select value={selectedLibrary.id} onChange={(event)=>update({...live.current,ruleLibraryId:event.target.value,rulePreset:Object.hasOwn(rulePresets,event.target.value)?event.target.value:live.current.rulePreset,aiOptions:[],aiProposal:'',aiImagePrompt:''})}>
+                  <select value={selectedLibrary.id} onChange={(event)=>update({...live.current,ruleLibraryId:event.target.value,rulePreset:Object.hasOwn(rulePresets,event.target.value)?event.target.value:live.current.rulePreset,aiOptions:[],aiProposal:'',aiImagePrompt:'',aiReferenceJobId:undefined})}>
                     {!libraries.length&&<option value="">暂无规则</option>}
                     {libraries.map(library=><option key={library.id} value={library.id}>{library.name}</option>)}
                   </select>
@@ -512,6 +547,9 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
                       <p className="proposal-summary">{selectedOption?.proposal}</p>
                       <div className="proposal-sections">{displaySections(selectedOption)?.map((section,index)=><div className="proposal-section" key={`${section.label}-${index}`}><h3>{section.label}</h3><p>{section.content}</p></div>)}</div>
                     </> : <div className="proposal-legacy">{proposalParagraphs(selectedOption?.proposal||'').map((paragraph,index)=><p key={index}>{paragraph}</p>)}</div>}
+                  </div>
+                  <div className="reference-results"><div className="reference-heading"><span>视觉参考</span>{project.aiReferenceJobId&&<button onClick={()=>void sendReferenceSearch(project.aiReferenceJobId!)}>重新查找</button>}</div>
+                    {selectedOption?.references?.length ? <div className="reference-grid">{selectedOption.references.map((ref,index)=><a key={`${ref.pageUrl}-${index}`} href={ref.pageUrl} target="_blank" rel="noopener noreferrer">{ref.preview?<img src={ref.preview} alt={ref.title} loading="lazy"/>:<span className="reference-placeholder">查看来源</span>}<strong>{ref.title}</strong><small>{ref.source}</small>{ref.description&&<small>{ref.description}</small>}</a>)}</div> : <p>{selectedOption?.referenceMessage||referenceStatus||'暂无参考图。'}</p>}
                   </div>
                 </section>
               )}
@@ -535,6 +573,7 @@ function App({ initial, loadError }: { initial: Project; loadError: string }) {
           <Excalidraw
             key={epoch}
             excalidrawAPI={(instance) => {
+              if (instance) requestAnimationFrame(() => requestAnimationFrame(() => window.dispatchEvent(new Event('zhongxing-canvas-ready'))));
               api.current = instance;
               setEditorApi(instance);
             }}
@@ -658,6 +697,7 @@ async function start() {
       "无法读取本地项目，未覆盖原记录。请保留浏览器数据，或导入已有项目备份；恢复保存前请确认。";
   }
   rememberCanvas(initial,!loadError);
+  window.dispatchEvent(new Event('zhongxing-data-ready'));
   try{if(sessionStorage.getItem('zhongxing-last-failure')){sessionStorage.removeItem('zhongxing-last-failure');if(!loadError)loadError='上次画布曾异常中断，已读取最后保存的项目；请核对最近操作，确认后再恢复自动保存。';}}catch{}
   createRoot(document.getElementById("root")!).render(<CanvasRecovery initial={initial} loadError={loadError}>{(p,error)=><App initial={p} loadError={error}/>}</CanvasRecovery>);
 }

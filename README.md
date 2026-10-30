@@ -1,5 +1,12 @@
 # 众行无限画布
 
+## 2.4.0 更新
+
+- 画布顶部可检查正式版本；发现新版本后可点击更新，完成后重启 Codex 并新建对话。网络或权限受限时会提示原因，用户项目不会被更新操作主动删除。
+- 视觉方案可按方向查找公开参考并标注来源；搜索、联网和缩略图可用性取决于当前环境。
+- 生图可选择画布中的图片作为参考，保留原图数据并沿用上传大小限制。
+- 加载提示保留到画布初始化与渲染后；减少保存期间的重复解析。此前的渲染进程灰屏根因尚未确认。
+
 ## 2.3.0 更新
 
 基于已验收的 `2.3.0-local.2`，经项目负责人确认发布。保留已有画布、原图、任务、自定义规则和项目文件兼容性。
@@ -94,13 +101,12 @@ codex plugin add zhongxing-canvas@zhongxing-canvas-github
 
 ```bash
 codex plugin marketplace upgrade zhongxing-canvas-github
-codex plugin remove zhongxing-canvas@zhongxing-canvas-github
 codex plugin add zhongxing-canvas@zhongxing-canvas-github
 ```
 
 卸载插件不会主动删除下述用户数据目录。升级前仍建议导出 `.zhongxing.json`。
 
-先确认 Marketplace 升级成功，再执行移除与重新添加；下载失败时保留当前安装，不要先卸载。更新后完全退出并重新打开 Codex，新建对话加载新版工具。
+先确认 Marketplace 升级成功，再安装新版；下载失败时不要先卸载当前插件。更新后完全退出并重新打开 Codex，新建对话加载新版工具。也可使用画布顶部的更新提示；旧版本需先通过上述方式升级一次。
 
 ## 数据、备份与迁移
 

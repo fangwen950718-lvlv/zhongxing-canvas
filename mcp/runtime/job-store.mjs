@@ -212,6 +212,18 @@ export async function createBriefJob({ brief, rulePreset = 'social-poster', rule
   return persist(briefJobPath(id), { id, brief: brief.trim(), rulePreset, ruleLabel: ruleLabel.trim(), ruleText: ruleText.trim(), status: 'queued', createdAt: new Date().toISOString() });
 }
 export async function readBriefJob(id) { return JSON.parse(await readFile(briefJobPath(id), 'utf8')); }
+export async function resetBriefReferences(id) {
+  const job = await readBriefJob(id);
+  if (job.status !== 'completed') throw new Error('方案尚未完成');
+  return persist(briefJobPath(id), { ...job, referenceGroups: [] });
+}
+export async function setBriefReferences(id, index, references, message) {
+  const job = await readBriefJob(id);
+  if (job.status !== 'completed' || !job.options?.[index]) throw new Error('方案尚未完成或方向不存在');
+  const groups = [...(job.referenceGroups || job.options.map(() => null))];
+  groups[index] = { references, message: message || '', updatedAt: new Date().toISOString() };
+  return persist(briefJobPath(id), { ...job, referenceGroups: groups });
+}
 export async function setBriefJobState(id, status, message) {
   const job = await readBriefJob(id);
   if (!['running', 'failed'].includes(status)) throw new Error('无效状态');
